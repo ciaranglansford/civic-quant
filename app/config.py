@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # Telegram listener
+    tg_api_id: int
+    tg_api_hash: str
+    tg_session_name: str
+    tg_source_channel: str
+    ingest_api_base_url: str
+
     # Database
     database_url: str
 

@@ -25,9 +25,13 @@ See [Architecture](./ARCHITECTURE.md), [Data Flow](../02-flows/DATA_FLOW.md), an
 ## quickstart-install
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv\Scripts\activate
 pip install -r requirements.txt
+
+.venv\Scripts\activate
 ```
+
+
 
 ## quickstart-configure
 Create a `.env` file or export environment variables.
