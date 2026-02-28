@@ -1,79 +1,62 @@
 # API and Interfaces
 
-## http-api-overview
+## HTTP API Overview
 
-The repository exposes an HTTP API via FastAPI.
+This API supports wire-bulletin ingestion and operational processing jobs.
 
-Base app factory: `app.main:create_app`.
-Router registration: `app.include_router(ingest_router)`.
+## Current API Surface vs Internal Pipeline Stages
 
-## endpoints
+- Exposed HTTP endpoints are focused on ingest and operational triggering.
+- Most stage execution (extraction, triage, clustering, reporting) currently runs via jobs/services, not broad public API endpoints.
+- Retrieval API endpoints are not documented as implemented in the current codebase.
 
-## get-health
-- **Method/Path:** `GET /health`
-- **Handler:** inline `health()` function in `app.main:create_app`
-- **Response model:** `HealthResponse`
-- **Response body:**
-  ```json
-  { "status": "ok" }
-  ```
-- **Auth:** none implemented in code.
+## Current Implemented Endpoints
 
-## post-ingest-telegram
-- **Method/Path:** `POST /ingest/telegram`
-- **Handler:** `app.routers.ingest:ingest_telegram`
-- **Request model:** `TelegramIngestPayload`
-- **Response model:** `IngestResponse`
-- **Auth:** none implemented in code.
+### `GET /health`
+- Purpose: service liveness.
+- Response: `{ "status": "ok" }`.
 
-### request-fields-telegramingestpayload
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `source_channel_id` | `str` | yes | Channel identifier string. |
-| `source_channel_name` | `str \| null` | no | Human-readable source name. |
-| `telegram_message_id` | `str` | yes | Message identifier within source channel. |
-| `message_timestamp_utc` | `datetime` | yes | Parsed by Pydantic. |
-| `raw_text` | `str` | yes | Original message text. |
-| `raw_entities_if_available` | `Any \| null` | no | Pass-through raw entities blob. |
-| `forwarded_from_if_available` | `str \| null` | no | Forward source label if present. |
+### `POST /ingest/telegram`
+- Purpose: ingest one Telegram bulletin observation.
+- Request model: `TelegramIngestPayload`.
+- Response model: `IngestResponse`.
+- Behavior:
+  - validates payload,
+  - normalizes text,
+  - stores immutable raw record idempotently.
 
-### response-fields-ingestresponse
-| Field | Type | Notes |
-|---|---|---|
-| `status` | `"created" \| "duplicate"` | Duplicate indicates idempotent hit on existing raw message. |
-| `raw_message_id` | `int` | Primary key of `raw_messages`. |
-| `event_id` | `int \| null` | Canonical event ID when created/found. |
-| `event_action` | `"create" \| "update" \| "ignore" \| null` | `null` on duplicate shortcut path. |
+### `POST /admin/process/phase2-extractions`
+- Purpose: manual internal trigger for one phase2 extraction run.
+- Guard: admin token header.
+- Behavior: runs same extraction processing logic used by scheduled job.
 
-### error-behavior
-- Unexpected exceptions in handler path return HTTP `500` with body `{ "detail": "ingest failed" }`.
-- Validation errors are FastAPI/Pydantic standard 422 responses.
+## Request/Response Contract Notes
 
-## non-http-interfaces
+### Ingest Request Semantics
 
-## cli-entrypoints
-| Command | Entry function | Purpose |
-|---|---|---|
-| `python -m app.jobs.run_digest` | `app.jobs.run_digest:main` | Generate + publish digest in configured window. |
-| `python -m listener.telegram_listener` | `listener.telegram_listener:main` | Start Telegram listener and forward messages to ingest API. |
+`raw_text` is treated as wire bulletin content that may represent an unverified reported claim.
 
-## event-consumer-interface
-- Listener subscribes to Telethon `events.NewMessage(chats=entity)` and maps each event into HTTP ingest payload.
+### Ingest Response Semantics
 
-## examples-from-tests
+- `status=created`: new raw bulletin captured.
+- `status=duplicate`: same source/message identity already captured.
 
-### ingest-example
-The test suite posts this shape to `/ingest/telegram`:
-```json
-{
-  "source_channel_id": "c1",
-  "source_channel_name": "feed",
-  "telegram_message_id": "m1",
-  "message_timestamp_utc": "<utc-iso8601>",
-  "raw_text": "FED hikes 25bp; USD jumps",
-  "raw_entities_if_available": null,
-  "forwarded_from_if_available": null
-}
-```
+## Non-HTTP Interfaces
 
-Expected first response status is `created`; second identical request returns `duplicate`.
+### CLI Jobs
+
+- `python -m app.jobs.run_phase2_extraction`
+- `python -m app.jobs.run_digest`
+- `python -m app.jobs.test_openai_extract`
+- `python -m app.jobs.reset_dev_schema`
+- `python -m app.jobs.clear_all_but_raw_messages`
+
+### Listener Runtime
+
+- `python -m listener.telegram_listener`
+- Poll-based loop that fetches unseen messages and posts to ingest endpoint.
+
+## Out of Scope (Current API Surface)
+
+- No public external-validation endpoint yet.
+- No retrieval endpoint family documented in current implementation.

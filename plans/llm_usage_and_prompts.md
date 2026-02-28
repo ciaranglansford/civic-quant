@@ -1,171 +1,110 @@
-## LLM Usage and Prompt Plan
+## LLM Usage and Prompt Execution Contract
 
-This document defines how LLMs will be used in the Civicquant Intelligence Pipeline. In Phase 1 MVP, extraction may be stubbed, but the interfaces and schemas must match this plan exactly.
+This document defines how LLM extraction fits into the wire-bulletin pipeline and how outputs must be stabilized for deterministic downstream processing.
 
-### 1. ExtractionAgent
+### Stage Context
 
-#### Purpose
+LLM extraction sits at Stage 3 (AI extraction of literal reported claim), after raw ingest and normalization, and before deterministic post-processing/triage.
 
-- Convert `normalized_text` from a single Telegram message into structured JSON fields matching `llm_extraction_schema`.
-- Provide scores and a stable `event_fingerprint` for dedup and routing.
+## 1) Extraction Agent Contract
 
-#### Inputs
+### Purpose
 
-- `normalized_text: string`
-- `message_time: ISO8601 datetime`
-- `source_channel_name: string`
+Transform normalized wire bulletins into strict structured claim payloads suitable for deterministic triage and event clustering.
 
-#### Outputs (Extraction JSON)
+### Inputs
 
-- `topic: string(enum)` – one of:
-  - `macro_econ`, `central_banks`, `equities`, `credit`, `rates`, `fx`, `commodities`, `crypto`, `war_security`, `geopolitics`, `company_specific`, `other`
-- `entities`:
-  - `countries: string[]`
-  - `orgs: string[]`
-  - `people: string[]`
-  - `tickers: string[]`
-- `affected_countries_first_order: string[]`
-- `market_stats: object[]` – each:
-  - `label: string`
-  - `value: number`
-  - `unit: string`
-  - `context: string`
-- `sentiment: string(enum)` – `positive`, `negative`, `neutral`, `mixed`, `unknown`
-- `confidence: number(0..1)`
-- `impact_score: number(0..100)`
-- `is_breaking: boolean`
-- `breaking_window: string(enum)` – `15m`, `1h`, `4h`, `none`
-- `event_time: string(ISO8601) | null`
-- `source_claimed: string | null`
-- `summary_1_sentence: string`
-- `keywords: string[]`
-- `event_fingerprint: string`
+- `normalized_text`
+- `message_time`
+- `source_channel_name`
 
-#### Prompt Skeleton (for future LLM implementation)
+### Required Output Fields
 
-- **System message**:
-  - Explain role: extract structured, market-relevant facts.
-  - Enforce no trading advice or prescriptive interpretation.
-  - Require strict adherence to JSON schema with no extra fields.
-- **User message**:
-  - Include:
-    - `normalized_text`
-    - `message_time`
-    - `source_channel_name`
-  - Include the complete JSON schema with:
-    - Field descriptions.
-    - Enum values and numeric ranges.
-  - Ask the model to return ONLY a single JSON object.
+- `topic`
+- `entities.countries`
+- `entities.orgs`
+- `entities.people`
+- `entities.tickers`
+- `affected_countries_first_order`
+- `market_stats[]`
+- `sentiment`
+- `confidence` (`0..1`)
+- `impact_score` (`0..100`)
+- `is_breaking`
+- `breaking_window`
+- `event_time`
+- `source_claimed`
+- `summary_1_sentence`
+- `keywords`
+- `event_fingerprint`
 
-#### Validation Checklist
+### Semantic Contract (Non-Negotiable)
 
-- All required fields present.
-- Enums are valid.
-- Numeric ranges respected (`0..1`, `0..100`).
-- `event_fingerprint` is non-empty and deterministic given the input.
+- Extraction is literal reported-claim capture.
+- Extraction is not truth adjudication.
+- Attribution and uncertainty language must be preserved, not silently removed.
+- `confidence` means extraction certainty.
+- `impact_score` means significance of the reported claim if taken at face value.
 
-### 2. EvidenceAgent (Phase 2+)
+## 2) Prompt and Validation Rules
 
-In Phase 1, this agent is **not used**. This section documents future behavior.
-
-#### Purpose
-
-- Given `extraction_json`, fetch supporting URLs and estimate reliability of the claim.
-
-#### Inputs
-
-- `extraction_json` as produced by `ExtractionAgent`.
-
-#### Outputs
-
-- `evidence_sources: []` of:
-  - `publisher: string`
-  - `title: string`
-  - `url: string`
-  - `published_time: string(ISO8601) | null`
-  - `snippet: string`
-- `corroboration_status: string(enum)` – `corroborated`, `partially_corroborated`, `uncorroborated`, `unknown`
-- `reliability_score: number(0..100)`
-- `notes: string`
-
-#### Guardrails
-
-- Never fabricate URLs or publishers.
-- If no corroboration is found, label as `uncorroborated` and lower publish priority downstream.
-
-### 3. RoutingAgent (Optional, Hybrid Mode)
-
-In Phase 1, routing is purely rules-based. This section documents an optional future agent.
-
-#### Purpose
-
-- Suggest destinations and publish priority as hints to the rules engine.
-
-#### Inputs
-
-- `extraction_json`
-- Optional `evidence_summary`
-
-#### Outputs
-
-- `suggested_destinations: string[]`
-- `publish_priority_suggestion: string(enum)` – `none`, `low`, `medium`, `high`
-
-### 4. PublisherAgent
-
-#### Purpose
-
-- Generate digest and long-form text from event queries, respecting tone and safety rules.
-
-#### Inputs
-
-- `events_query_results` – structured events with summaries, impact, topics, and evidence (where available).
-
-#### Outputs
-
-- `final_post_text: string`
-- `metadata: object` – e.g., categories included, time window, counts.
-- `content_hash: string`
-
-#### Digest Template Shape (Phase 1)
-
-- **Header**:
-  - Time window (e.g., `Last 4 hours`).
-  - High-level counts (events per topic).
-- **Body grouped by topic**:
-  - Topic heading (e.g., `Macro / Central Banks`).
-  - For each event:
-    - 1-sentence summary.
-    - Key numbers and entities.
-    - Corroboration label: `unknown` (Phase 1) or from evidence later.
-- **Footer**:
-  - Disclaimers: no investment advice; informational only.
-
-
-## 5. Phase 2 ExtractionAgent Prompt Governance (Execution Contract)
-
-For scheduled backend processing, the ExtractionAgent prompt flow must remain deterministic and auditable.
-
-### Prompt Template Ownership
-
-- Prompt template file is checked into the backend repository and versioned (e.g., `extraction_agent_v1`).
-- Processing code loads template from disk and injects only:
-  - `normalized_text`
-  - `message_time`
-  - `source_channel_name`
-- Each persisted extraction stores the `prompt_version` used.
-
-### Non-negotiable Output Constraints
+### Prompt Constraints
 
 - Return exactly one JSON object.
-- No markdown, prose, or code fences.
-- No additional keys beyond the extraction schema fields.
-- Enum values must match allowed values exactly.
-- Numeric fields must satisfy defined ranges.
-- `event_fingerprint` must be deterministic and repeatable for equivalent facts.
+- No markdown/code fences/prose.
+- No additional keys.
+- Enum values must match allowed sets.
+- Numeric ranges must pass validation.
 
-### Runtime Validation Requirement
+### Runtime Validation
 
-- Validation occurs before DB persistence using strict schema parsing.
-- Invalid JSON or schema violations are recorded as failed processing attempts with explicit error reason.
-- Failed attempts are retryable under scheduler policy; completed rows are not reprocessed.
+- Parse as strict JSON object.
+- Reject unknown keys or invalid enum/range values.
+- On failure: classify and record error (`validation_error` / `provider_error`), keep row retryable.
+
+## 3) Downstream Handoff to Deterministic Triage
+
+### Why this handoff exists
+
+Deterministic code must stabilize model outputs before routing, clustering, and reporting.
+
+### Handoff Inputs
+
+- Validated extraction payload
+- Message metadata and processing context
+
+### Handoff Outputs (Deterministic)
+
+- Canonicalized fields used by routing/event logic
+- Stable triage outcomes (priority/action/flags)
+- Cluster-ready fingerprint and event-time context
+
+### Stability Constraints
+
+- Equivalent facts should preserve stable `event_fingerprint` behavior.
+- Triage outcomes must be reproducible for same validated inputs/config.
+
+## 4) Local Validation Workflow
+
+### Run extraction probe
+- `python -m app.jobs.test_openai_extract`
+
+Expected:
+- extractor identity printed
+- OpenAI usage metadata printed
+- validated JSON output printed
+
+### Run scheduled/manual extraction batch
+- `python -m app.jobs.run_phase2_extraction`
+
+Expected:
+- config log line
+- extractor selection log line
+- run summary with selected/processed/completed/failed counts
+
+### Verify persisted outputs
+
+- `extractions` contains typed retrieval fields
+- `payload_json` stores full validated extraction
+- `metadata_json` stores provider telemetry and fallback context
+- failures remain explicit in `message_processing_states.last_error`

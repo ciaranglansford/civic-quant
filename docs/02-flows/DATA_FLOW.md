@@ -1,129 +1,170 @@
 # Data Flow
 
-## overview
+## Overview
 
-This document describes runtime data flows derived from executable code paths.
+This document describes the runtime flow for Telegram wire-bulletin ingestion and processing.
 
-## flow-1-telegram-message-to-event
+It distinguishes:
+- Current implementation,
+- Target-state intended architecture,
+- Future optional enhancements.
 
-### trigger
-- Trigger/source: Telegram `events.NewMessage` in listener process.
-- Code entrypoint: `listener.telegram_listener:handler`.
+For operational execution details, see:
+- `docs/04-operations/operations_and_scheduling.md`
 
-### steps
-1. **Listener receives Telegram message**
-   - Builds JSON payload with channel/message metadata and UTC timestamp.
-   - Function: `build_ingest_payload`.
-   - Input: Telethon message object.
-   - Output: dict matching `TelegramIngestPayload` fields.
-2. **Listener POSTs payload to backend with retries**
-   - Function: `post_with_retries`.
-   - Behavior: retries on exceptions, 429, and 5xx with exponential backoff up to 30s.
-3. **API handler validates payload schema**
-   - Endpoint: `POST /ingest/telegram`.
-   - Pydantic model: `TelegramIngestPayload`.
-4. **Normalize raw text**
-   - Function: `normalize_message_text`.
-   - Output: cleaned single-spaced text.
-5. **Idempotent raw message insert**
-   - Function: `process_ingest_payload`.
-   - Checks existing `(source_channel_id, telegram_message_id)` before insert; also handles DB uniqueness race via `IntegrityError` fallback.
-   - Persistence: `raw_messages` table.
-6. **Extraction step**
-   - Function: `ExtractionAgent.extract`.
-   - Input: normalized text + message time + source channel name.
-   - Output: `ExtractionJson` (topic, entities, impact, summary, event fingerprint, etc.).
-   - Persistence: `extractions` table.
-7. **Routing step**
-   - Function: `route_extraction`.
-   - Output: `RoutingDecisionData` including destination list, publish priority, and `event_action`.
-   - Persistence: `routing_decisions` table.
-8. **Event upsert step (if `event_action != ignore`)**
-   - Function: `upsert_event`.
-   - Matching strategy: `event_fingerprint` + topic/breaking-dependent time window.
-   - Creates or updates `events` row and inserts `event_messages` link.
-9. **Commit + response**
-   - On success: returns `IngestResponse` with status and IDs.
-   - On error: router rolls back session and responds with HTTP 500.
+## Current Implementation Flow
 
-### persistence-side-effects
-- Inserts/updates: `raw_messages`, `extractions`, `routing_decisions`, `events`, `event_messages`.
-- Idempotency guard: unique constraint on `raw_messages(source_channel_id, telegram_message_id)`.
+### Trigger
+- Source: Telegram wire-style bulletin feed.
+- Listener mode: poll loop (`get_messages`), not push subscription.
 
-### error-handling-retries
-- Listener: retry with exponential backoff on transient failures.
-- API router: try/except around pipeline execution; rollback on failure.
-- Pipeline: handles insert race via `IntegrityError` and returns duplicate response.
+### Steps
+1. Listener polls source and builds ingest payload.
+2. Listener posts payload to `POST /ingest/telegram` with retries.
+3. Backend validates payload and normalizes text deterministically.
+4. Backend stores immutable idempotent `raw_messages` row.
+5. Backend creates/maintains `message_processing_states` (`pending` on ingest).
+6. Phase2 extraction job selects eligible rows and calls OpenAI extraction.
+7. Strict schema validation runs before persistence.
+8. Structured extraction is persisted (`extractions` typed fields + payload/metadata JSON).
+9. Deterministic routing + event clustering persist `routing_decisions`, `events`, and `event_messages`.
+10. Scheduled digest job builds event-level report and persists `published_posts`.
 
-### observability
-- Listener logs: `post_ok`, `post_retryable`, `post_nonretryable`, `post_error`, `post_failed`.
-- API/pipeline logs: `ingest_ok`, `ingest_failed`, `pipeline_done`, `event_create`, `event_update`.
+## Execution Touchpoints by Stage
 
-```mermaid
-sequenceDiagram
-  participant TG as Telegram Channel
-  participant L as listener.telegram_listener
-  participant API as FastAPI /ingest/telegram
-  participant PIPE as ingest_pipeline
-  participant DB as SQL DB
+### Stage 1: Raw Capture
+- Responsible module/job:
+  - `listener/telegram_listener.py`
+  - `app/routers/ingest.py`
+  - `app/services/ingest_pipeline.py`
+- Local commands:
+  - `python -m listener.telegram_listener`
+  - `uvicorn app.main:app --reload`
+- Observable outputs:
+  - logs: listener post + ingest success/failure
+  - DB: `raw_messages`, `message_processing_states`
 
-  TG->>L: NewMessage event
-  L->>L: build_ingest_payload(msg)
-  L->>API: POST /ingest/telegram
-  API->>PIPE: process_ingest_payload(...)
-  PIPE->>DB: insert raw_messages (idempotent)
-  PIPE->>PIPE: extract + route
-  PIPE->>DB: insert extractions + routing_decisions
-  alt event_action != ignore
-    PIPE->>DB: upsert events + insert event_messages
-  end
-  PIPE-->>API: result dict
-  API->>DB: commit
-  API-->>L: IngestResponse
-```
+### Stage 2: Structural Normalization
+- Responsible module/job:
+  - `app/services/normalization.py`
+- Local command:
+  - runs as part of ingest request path
+- Observable outputs:
+  - DB: `raw_messages.normalized_text`
 
-## flow-2-digest-generation-and-publication
+### Stage 3: AI Claim Extraction
+- Responsible module/job:
+  - `app/jobs/run_phase2_extraction.py`
+  - `app/services/phase2_processing.py`
+- Local commands:
+  - `python -m app.jobs.run_phase2_extraction`
+  - `python -m app.jobs.test_openai_extract`
+- Observable outputs:
+  - logs: phase2 config/extractor/summary
+  - DB: `extractions`, `message_processing_states`
 
-### trigger
-- Trigger/source: CLI job invocation `python -m app.jobs.run_digest`.
+### Stage 4: Deterministic Post-Processing / Triage
+- Responsible module/job:
+  - `app/services/routing_engine.py`
+  - `app/services/ingest_pipeline.py` (routing persistence)
+- Local command:
+  - executed inside phase2 batch
+- Observable outputs:
+  - DB: `routing_decisions`
 
-### steps
-1. **Job setup**
-   - `run_digest.main` loads settings, initializes DB, opens session.
-2. **Event query by time window**
-   - `get_events_for_digest(hours)` selects events updated/recent in last N hours.
-3. **Digest text generation**
-   - `build_digest(events, window_hours)` groups events by topic label and formats message.
-4. **Digest dedup check**
-   - `has_recent_duplicate(destination, content_hash, within_hours)` checks `published_posts`.
-5. **Publish to Telegram bot API**
-   - `send_digest_to_vip(text)` sends HTTP POST to `https://api.telegram.org/bot<TOKEN>/sendMessage`.
-6. **Persist publication record**
-   - Inserts `published_posts` row with hash and content.
+### Stage 5: Event Clustering
+- Responsible module/job:
+  - `app/services/event_manager.py`
+- Local command:
+  - executed inside phase2 batch
+- Observable outputs:
+  - logs: `event_create` / `event_update`
+  - DB: `events`, `event_messages`
 
-### inputs-outputs
-- Inputs: DB event rows + `VIP_DIGEST_HOURS` + Telegram bot credentials.
-- Outputs: Telegram message side effect + persisted `published_posts` record + result dict.
+### Stage 6: Entity Indexing / Dataset Construction
+- Responsible module/job:
+  - current indexed storage contracts in extraction/event tables
+- Local command:
+  - use extraction batch and DB queries
+- Observable outputs:
+  - typed/indexed extraction fields for topic/time/impact queries
 
-### error-handling
-- Missing Telegram bot config raises `RuntimeError`.
-- Telegram API >= 400 logs error and raises HTTP error.
-- Duplicate digest in recent window skips publish.
+### Stage 7: Deferred Enrichment / Validation
+- Responsible module/job:
+  - not implemented in current code path
+- Local command:
+  - N/A
+- Observable outputs:
+  - N/A (future)
 
-### observability
-- Logs include: `digest_skip_duplicate`, `digest_published`, `telegram_publish_failed`, `telegram_publish_ok`.
+### Stage 8: Scheduled Reporting
+- Responsible module/job:
+  - `app/jobs/run_digest.py`
+  - `app/services/digest_runner.py`
+- Local command:
+  - `python -m app.jobs.run_digest`
+- Observable outputs:
+  - logs: publish/skip lines
+  - DB: `published_posts`
 
-## flow-3-health-check
+## Target-State Staged Pipeline
 
-### trigger
-- `GET /health` HTTP call.
+### 1) Raw Capture
+- What: persist bulletins exactly as received.
+- Why: immutable source-of-record for audit and replay.
+- Consumes: listener payload.
+- Produces: raw message rows.
 
-### steps
-1. FastAPI route returns `HealthResponse(status="ok")`.
+### 2) Structural Normalization
+- What: deterministic cleanup of wire-style formatting noise.
+- Why: stable inputs for extraction and matching.
+- Consumes: raw text.
+- Produces: normalized text.
 
-### side-effects
-- No DB/API side effects.
+### 3) AI Claim Extraction
+- What: extract literal reported claim with attribution/uncertainty.
+- Why: convert bulletin text into structured claim data.
+- Consumes: normalized text + message metadata.
+- Produces: validated structured extraction payload.
 
-## uncertainties
-- No explicit queue/broker exists in code, so all flows are synchronous HTTP + DB operations.
-- No tracing/metrics instrumentation is present; observability is log-based only.
+### 4) Deterministic Post-Processing / Triage
+- What: code-based validation, canonicalization, ranking/triage.
+- Why: stabilize AI outputs and reduce noisy actioning.
+- Consumes: extraction payload.
+- Produces: deterministic triage/routing outcomes.
+
+### 5) Event Clustering
+- What: cluster repeated/incremental/contradictory observations into evolving event records.
+- Why: events are the downstream unit for reasoning and reporting.
+- Consumes: message-level extraction + routing context.
+- Produces: canonical events and message-event links.
+
+### 6) Entity Indexing / Dataset Construction
+- What: maintain queryable dataset over events/extractions/entities.
+- Why: power retrieval by topic, ticker, country, breaking relevance, and time range.
+- Consumes: structured persisted outputs.
+- Produces: internal analytical query surface.
+
+### 7) Deferred Enrichment / External Validation
+- What: selective external corroboration and enrichment.
+- Why: separate verification from raw capture and claim extraction.
+- Consumes: selected events.
+- Produces: enriched event confidence/corroboration state.
+
+### 8) Scheduled Reporting
+- What: generate reports from structured event-level data.
+- Why: avoid reporting from raw noisy bulletin text.
+- Consumes: curated event dataset.
+- Produces: digest/report outputs with audit traceability.
+
+## Key Semantics
+
+- Bulletins are treated as reported claims until validated later.
+- `confidence` is extraction/classification certainty.
+- `impact_score` is significance of the reported claim if taken at face value.
+
+## Future Optional Enhancements
+
+- Selective external evidence pipelines and reliability scoring.
+- Additional event-level reporting channels.
+- Expanded normalization/canonicalization rules for wire feed variants.

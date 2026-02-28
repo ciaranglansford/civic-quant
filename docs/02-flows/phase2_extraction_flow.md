@@ -2,39 +2,79 @@
 
 ## Purpose
 
-Describe the implemented Phase 2 extraction pipeline for OpenAI-backed extraction and retrieval-oriented persistence.
+Describe phase2 extraction as the stage that turns normalized wire bulletins into validated structured claim records and drives deterministic downstream processing.
 
-## End-to-End Flow
+## Phase Location in Full Pipeline
 
-1. Scheduler or admin trigger starts phase2 run (`python -m app.jobs.run_phase2_extraction` or admin endpoint).
-2. Service acquires `processing_locks` row lease (`phase2_extraction` lock name).
-3. Eligible rows are selected from `raw_messages` + `message_processing_states`:
-   - no state row, or
-   - `pending`, or
-   - `failed`, or
-   - expired `in_progress` lease.
-4. Extractor selection:
-   - If `PHASE2_EXTRACTION_ENABLED=true` and `OPENAI_API_KEY` present:
-     - use `extract-and-score-openai-v1`.
-   - Otherwise:
-     - fail fast (no silent stub fallback).
-5. Prompt is rendered from message text and metadata.
-6. OpenAI Responses API is called.
-7. Model output is parsed and strictly validated via pydantic schema validators.
-8. On success, `extractions` row is inserted/updated with:
-   - typed query fields (`topic`, `event_time`, `impact_score`, `confidence`, `sentiment`, `is_breaking`, `breaking_window`, `event_fingerprint`)
-   - canonical `extractor_name`
-   - full payload in `payload_json`
-   - provider telemetry in `metadata_json`
-9. Routing decision is computed and persisted.
-10. Event upsert runs when `event_action != ignore`.
-11. Message state is marked `completed`; otherwise `failed` with classed reason.
+Phase2 extraction sits at the Stage 3-5 boundary:
+- Stage 3: AI claim extraction
+- Stage 4: deterministic triage/routing
+- Stage 5: event clustering
+
+## Current Implementation Flow
+
+1. Trigger
+- Job trigger: `python -m app.jobs.run_phase2_extraction`
+- Optional admin trigger: `POST /admin/process/phase2-extractions`
+
+2. Selection
+- Acquire lock (`processing_locks`).
+- Select eligible rows from `raw_messages` + `message_processing_states` (`pending`, `failed`, expired lease).
+
+3. Extraction
+- Use extractor `extract-and-score-openai-v1`.
+- Call OpenAI Responses API.
+- Parse and strictly validate JSON schema.
+
+4. Persistence
+- Write typed extraction fields for retrieval.
+- Write full payload in `payload_json`.
+- Write provider telemetry in `metadata_json`.
+
+5. Downstream deterministic processing
+- Compute routing/triage output.
+- Create/update event clusters.
+- Mark processing state `completed` or `failed`.
+
+## Consumes / Produces
+
+### Consumes
+- `raw_messages.normalized_text`
+- `raw_messages.message_timestamp_utc`
+- `raw_messages.source_channel_name`
+- phase2 runtime config and prompt template
+
+### Produces
+- `extractions` row updates/inserts
+- `routing_decisions` row updates/inserts
+- `events` and `event_messages` updates
+- `message_processing_states` status transitions
+- phase2 run logs with summary counts
+
+## Safe Rerun Behavior and Idempotency Boundaries
+
+- Raw messages are immutable and not rewritten by phase2 extraction.
+- Completed rows are skipped by eligibility logic unless state is reset.
+- Reprocessing derived layers can be done by clearing non-raw tables and rerunning extraction.
+- Full schema reset is destructive and should be used only for dev reset scenarios.
+
+Reprocess commands:
+- preserve raw: `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages`
+- full reset: `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+
+## Claim Semantics and Uncertainty Preservation
+
+- Extraction captures what the bulletin reports.
+- Attribution/uncertainty language should remain represented in extraction output.
+- `confidence` = extraction certainty.
+- `impact_score` = face-value significance of the reported claim.
+- Neither field is a truth-confirmation score.
 
 ## Failure Policy
 
-- Validation failure: mark processing state failed (`validation_error:*`), no stub substitution.
-- Provider failure: mark processing state failed (`provider_error:*`), no stub substitution.
-- Persistence failure: mark processing state failed (`persistence_error:*`).
+- Validation error -> `failed` state (`validation_error:*`).
+- Provider error -> `failed` state (`provider_error:*`).
+- No silent fallback that rewrites output as a confirmed fact.
 
 ## Sequence Diagram
 
@@ -49,13 +89,11 @@ sequenceDiagram
   J->>P: process_phase2_batch()
   P->>DB: acquire/update processing_locks
   P->>DB: select eligible raw_messages
-  P->>P: select extractor (OpenAI required)
   P->>O: responses.create()
-  O-->>P: response {id, model, output_text}
+  O-->>P: response
   P->>V: parse_and_validate_extraction(raw_text)
-  V-->>P: validated extraction payload
+  V-->>P: validated claim payload
   P->>DB: upsert extractions (typed fields + payload_json + metadata_json)
-  P->>DB: upsert routing_decisions/events/event_messages
-  P->>DB: update message_processing_states
-  P->>DB: release processing_locks
+  P->>DB: upsert routing + events + links
+  P->>DB: update processing state
 ```

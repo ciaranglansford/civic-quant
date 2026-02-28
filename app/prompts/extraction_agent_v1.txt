@@ -26,11 +26,64 @@ Schema (all keys required, no extra keys):
   "event_fingerprint": "string"
 }
 
-Constraints:
+Hard constraints:
 - No additional keys anywhere.
-- confidence must be between 0 and 1.
-- impact_score must be between 0 and 100.
-- event_fingerprint must be deterministic for equivalent facts.
+- confidence must be between 0 and 1 inclusive.
+- impact_score must be between 0 and 100 inclusive.
+- Round confidence to 2 decimals. Round impact_score to nearest integer.
+- event_fingerprint must be deterministic for equivalent facts via canonical concatenation rules below.
+
+Topic selection precedence (choose the FIRST matching):
+1) central_banks (rate decisions, guidance, balance sheet policy, CB officials)
+2) macro_econ (CPI, jobs, GDP, PMI, inflation, recession indicators)
+3) war_security (kinetic conflict, attacks, mobilization, terrorism, military escalation)
+4) rates (yields, curve, issuance, duration shocks not directly CB actions)
+5) credit (spreads, defaults, downgrades, funding stress)
+6) fx (currency moves, pegs, controls)
+7) commodities (oil/gas/metals/agriculture supply-demand shocks)
+8) equities (broad indices/sector moves not single-company)
+9) geopolitics (diplomacy, sanctions, elections, treaties without active warfare)
+10) company_specific (earnings, guidance, M&A, product, lawsuit)
+11) crypto (unless clearly macro/CB-driven; then choose macro/CB topic)
+12) other
+
+Scoring algorithm (do NOT output workings; only output final numbers):
+A) confidence points (0–10):
+- Source credibility (0–3): 3 official/major wire; 2 reputable analyst/OSINT; 1 generic "reports/sources"; 0 rumor/unconfirmed
+- Specificity (0–3): +1 named entity; +1 checkable action/event; +1 hard datum (number/date/location)
+- Internal consistency (0–2): 2 coherent; 1 some hedging; 0 contradictory/speculative
+- Market mechanism clarity (0–2): 2 direct mechanism; 1 indirect; 0 vague
+confidence = clamp(points/10, 0, 1), rounded to 2 decimals.
+
+B) Breaking rules:
+is_breaking = true if message contains "breaking/urgent/just now" OR event_time within last 60 minutes relative to message_time OR first report of a high-impact event type (rate decision, CPI/jobs print, OPEC cut, sanctions, major escalation, exchange halt, ETF approval/denial, earnings preannounce).
+breaking_window: if not breaking => "none". If breaking: 15m if within 15m; 1h if within 1h; 4h if within 4h; else "none".
+
+C) impact_score (0–100):
+Base by topic: central_banks 55; macro_econ 50; war_security 50; rates 45; credit 40; fx 35; commodities 35; equities 30; geopolitics 30; crypto 25; company_specific 25; other 10.
+Scope add (0–25): +10 G7/EU-wide; +7 large EM; +5 multi-country (2+); +3 globally relevant single-country; +0 unclear/local.
+Magnitude add (0–15): +15 hard numbers w/ clear significance; +10 strong qualitative magnitude; +5 mild/uncertain; +0 none.
+Urgency multiplier: 15m 1.20; 1h 1.10; 4h 1.00; none 0.80.
+Confidence multiplier: conf_mult = 0.7 + 0.3*confidence.
+impact_raw = (base + scope + magnitude) * urgency_mult * conf_mult
+impact_score = clamp(round(impact_raw), 0, 100).
+
+Event time rules:
+- If message explicitly states time/date, use it normalized to ISO-8601.
+- If message implies "now/just" without explicit time, set event_time = message_time.
+- Else null.
+
+Market stats extraction:
+- Only include numeric stats explicitly present (prices, % moves, bps, yields, volumes, production amounts).
+- label: short name (e.g., "US 10Y", "BTC", "CPI YoY")
+- value: numeric float
+- unit: "%|bps|USD|index|barrels|tons|etc."
+- context: null or short qualifier (e.g., "pre-market", "YoY", "MoM")
+
+Deterministic event_fingerprint (canonical string, not a hash):
+event_fingerprint =
+"<topic>|<event_date YYYY-MM-DD or null>|<countries_sorted_lower>|<orgs_sorted_lower>|<people_sorted_lower>|<tickers_sorted_upper>|<top3_keywords_sorted_lower>|<event_core_lower>"
+Where event_core_lower is a short normalized clause describing the core event (no adjectives).
 
 Input values:
 - normalized_text: {{normalized_text}}

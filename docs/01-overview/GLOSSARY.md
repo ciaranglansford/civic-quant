@@ -1,14 +1,18 @@
 # Glossary
 
-- **Raw Message**: Original Telegram message persisted in `raw_messages`, including source metadata and normalized text.
-- **Normalization**: Text cleaning step (`normalize_message_text`) that trims control chars and collapses whitespace.
-- **Extraction**: Structured record (`ExtractionJson`) produced by `ExtractionAgent.extract` from raw text.
-- **Event Fingerprint**: Deterministic hash key used to cluster related messages into canonical events.
-- **Canonical Event**: Row in `events` representing a deduplicated/merged event over time.
-- **Event Window**: Time range (`get_event_time_window`) used with fingerprint to decide create vs update behavior.
-- **Routing Decision**: Per-message classification (`routing_decisions`) including destinations, publish priority, and flags.
-- **Publish Priority**: `none|low|medium|high` derived from impact thresholds.
-- **Breaking Window**: Enum value (`15m|1h|4h|none`) in extraction schema indicating urgency framing.
-- **Digest**: Human-readable text summary built from recent events and sent to Telegram VIP destination.
-- **Published Post**: Persisted record of outbound digest content and hash for deduplication.
-- **Idempotent Ingest**: Behavior where duplicate source message IDs return `status="duplicate"` rather than creating new rows.
+- Raw Message: Original Telegram bulletin persisted in `raw_messages` without semantic reinterpretation.
+- Wire Bulletin: Headline/ticker-style short update from a source feed (often urgent, repetitive, and attribution-heavy).
+- Observation: One incoming bulletin record describing a reported development.
+- Reported Claim: The literal claim made by a bulletin source, not a confirmed fact.
+- Claim vs Confirmed Fact: Claim is what is reported now; confirmation requires separate later validation.
+- Attribution Signal: Source context in the bulletin (publisher tag, dateline, quoted official/source wording).
+- Normalization: Deterministic preprocessing that reduces formatting noise before extraction.
+- Extraction: Structured representation of the reported claim.
+- Confidence: Confidence in extraction/classification quality, not truth.
+- Impact Score: Significance of the claim if taken at face value, not factual certainty.
+- Event Fingerprint: Stable key used to cluster related observations.
+- Event Cluster: Evolving canonical event built from multiple related observations.
+- Observation vs Event Cluster: Observation is one message; event cluster is the merged evolving story.
+- Routing Decision: Deterministic triage output (`store_to`, priority, flags, event action).
+- Deferred Validation: Later selective process that confirms/denies/enriches reported claims.
+- Scheduled Reporting: Digest/report generation from structured event data at a fixed cadence.
