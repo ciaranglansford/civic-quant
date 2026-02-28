@@ -1,8 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from dotenv import load_dotenv
 
 from .config import get_settings
 
+load_dotenv()
 
 settings = get_settings()
 

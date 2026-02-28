@@ -50,6 +50,23 @@ Summarize key JSON schemas and the Postgres storage model used in the Civicquant
 - **event_fingerprint: string**
   - Stable key constructed from entities, numbers, topic, and source.
 
+### Extraction Output Schema (Persisted Shape)
+
+- **extractor_name: string**
+  - Canonical extractor identity (`extract-and-score-openai-v1` for OpenAI path).
+- **schema_version: integer**
+  - Current default is `1`.
+- **payload_json: object (JSONB)**
+  - Full validated extraction payload for forward compatibility.
+- **metadata_json: object (JSONB)**
+  - Provider/runtime telemetry:
+    - `used_openai`
+    - `openai_model`
+    - `openai_response_id`
+    - `latency_ms`
+    - `retries`
+    - `fallback_reason`
+
 ### Evidence Schema (Phase 2+)
 
 - **evidence_sources: object[]**
@@ -90,16 +107,34 @@ Summarize key JSON schemas and the Postgres storage model used in the Civicquant
 
 #### extractions
 
-- **Purpose**: Per-message structured extraction and model metadata.
+- **Purpose**: Per-message structured extraction with retrieval-optimized typed fields.
 - **Key columns**:
   - `id` (PK, integer)
   - `raw_message_id` (FK -> raw_messages.id)
-  - `model_name` (string)
-  - `extraction_json` (JSON)
+  - `model_name` (string, nullable, legacy compatibility only)
+  - `extractor_name` (text, non-null)
+  - `schema_version` (integer, non-null, default `1`)
+  - `event_time` (timestamp, nullable)
+  - `topic` (text, nullable)
+  - `impact_score` (float, nullable)
+  - `confidence` (float, nullable)
+  - `sentiment` (text, nullable)
+  - `is_breaking` (boolean, nullable)
+  - `breaking_window` (text, nullable)
+  - `event_fingerprint` (text, nullable)
+  - `payload_json` (JSONB)
+  - `metadata_json` (JSONB, nullable)
+  - `prompt_version` (string, nullable)
+  - `processing_run_id` (string, nullable)
+  - `llm_raw_response` (text, nullable)
+  - `validated_at` (timestamp, nullable)
   - `created_at` (timestamp)
 - **Constraints / Indexes**:
   - Foreign key constraint to `raw_messages`.
-  - Optional unique constraint on `raw_message_id` (one extraction per message in Phase 1).
+  - Unique constraint on `raw_message_id`.
+  - Composite index `idx_extractions_topic_event_time (topic, event_time)`.
+  - Composite index `idx_extractions_topic_event_time_impact (topic, event_time, impact_score)`.
+  - Index on `event_fingerprint`.
 
 #### events
 
@@ -167,8 +202,13 @@ Summarize key JSON schemas and the Postgres storage model used in the Civicquant
   - `published_posts.published_at`
 - Fingerprint index:
   - `events.event_fingerprint`
+  - `extractions.event_fingerprint`
+- Retrieval indexes:
+  - `extractions(topic, event_time)`
+  - `extractions(topic, event_time, impact_score)`
 - Uniqueness:
   - `raw_messages(source_channel_id, telegram_message_id)`
+  - `extractions(raw_message_id)`
   - `event_messages(event_id, raw_message_id)`
 
 
@@ -202,9 +242,9 @@ Summarize key JSON schemas and the Postgres storage model used in the Civicquant
 ### extractions traceability extension (Phase 2)
 
 In addition to existing fields, extraction persistence should include:
-- `prompt_version`
-- `processing_run_id`
-- `llm_raw_response`
-- `validated_at`
+- typed retrieval fields (`topic`, `event_time`, `impact_score`, `confidence`, `sentiment`, `is_breaking`, `breaking_window`, `event_fingerprint`)
+- `payload_json` (full validated extraction output)
+- `metadata_json` (provider telemetry and fallback context)
+- traceability fields (`prompt_version`, `processing_run_id`, `llm_raw_response`, `validated_at`)
 
 These fields support replay/debug of model behavior and run-level audits.
