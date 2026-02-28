@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # API
     api_host: str = "0.0.0.0"
@@ -36,8 +36,6 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 2
-    
-    CONFIRM_RESET_DEV_SCHEMA: bool | None = False
 
 
 @lru_cache
