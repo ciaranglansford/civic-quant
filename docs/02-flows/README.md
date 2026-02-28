@@ -3,3 +3,4 @@
 - [`DATA_FLOW.md`](./DATA_FLOW.md): detailed code-derived flows with Mermaid sequence diagram.
 - [`data_flow_telegram_to_storage.md`](./data_flow_telegram_to_storage.md): legacy flow narrative.
 - [`agents_and_services.md`](./agents_and_services.md): responsibilities and side effects of key agents/services.
+- [`phase2_extraction_flow.md`](./phase2_extraction_flow.md): phase2 OpenAI extraction and persistence flow.

@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -16,6 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .db import Base
+
+JSONB_COMPAT = JSON().with_variant(JSONB, "postgresql")
 
 
 class RawMessage(Base):
@@ -77,18 +80,33 @@ class ProcessingLock(Base):
 
 class Extraction(Base):
     __tablename__ = "extractions"
-    __table_args__ = (UniqueConstraint("raw_message_id", name="uq_extraction_raw_message"),)
+    __table_args__ = (
+        UniqueConstraint("raw_message_id", name="uq_extraction_raw_message"),
+        Index("idx_extractions_topic_event_time", "topic", "event_time"),
+        Index("idx_extractions_topic_event_time_impact", "topic", "event_time", "impact_score"),
+    )
 
     id = Column(Integer, primary_key=True)
     raw_message_id = Column(
         Integer, ForeignKey("raw_messages.id", ondelete="CASCADE"), nullable=False
     )
-    model_name = Column(String(255), nullable=False, default="stub-extractor-v1")
+    model_name = Column(String(255), nullable=True)
+    extractor_name = Column(Text, nullable=False)
+    schema_version = Column(Integer, nullable=False, default=1)
+    event_time = Column(DateTime, nullable=True, index=True)
+    topic = Column(Text, nullable=True)
+    impact_score = Column(Float, nullable=True)
+    confidence = Column(Float, nullable=True)
+    sentiment = Column(Text, nullable=True)
+    is_breaking = Column(Boolean, nullable=True)
+    breaking_window = Column(Text, nullable=True)
+    event_fingerprint = Column(Text, nullable=True, index=True)
     prompt_version = Column(String(64), nullable=True)
     processing_run_id = Column(String(64), nullable=True)
     llm_raw_response = Column(Text, nullable=True)
     validated_at = Column(DateTime, nullable=True)
-    extraction_json = Column(JSON, nullable=False)
+    payload_json = Column(JSONB_COMPAT, nullable=False)
+    metadata_json = Column(JSONB_COMPAT, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     raw_message = relationship("RawMessage", back_populates="extraction")

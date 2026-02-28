@@ -5,3 +5,5 @@
 - [`architecture_overview.md`](./architecture_overview.md): legacy architecture summary.
 - [`DECISIONS.md`](./DECISIONS.md): inferred engineering decisions from code.
 - [`GLOSSARY.md`](./GLOSSARY.md): project term definitions.
+- [`DOCUMENTATION_STANDARD.md`](./DOCUMENTATION_STANDARD.md): required documentation update policy and DoD.
+- [`../02-flows/phase2_extraction_flow.md`](../02-flows/phase2_extraction_flow.md): phase2 OpenAI extraction runtime flow.

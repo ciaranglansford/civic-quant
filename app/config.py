@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 2
+    
+    CONFIRM_RESET_DEV_SCHEMA: bool | None = False
 
 
 @lru_cache

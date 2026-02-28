@@ -107,7 +107,7 @@ async def main() -> None:
     session_name = _require_env("TG_SESSION_NAME")
     source_channel = _require_env("TG_SOURCE_CHANNEL")
     ingest_base = _require_env("INGEST_API_BASE_URL").rstrip("/")
-    poll_interval_s = float(os.getenv("TG_POLL_INTERVAL_S", "5"))
+    poll_interval_s = float(os.getenv("TG_POLL_INTERVAL_S", "60"))
 
     ingest_url = f"{ingest_base}/ingest/telegram"
 

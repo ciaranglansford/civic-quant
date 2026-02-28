@@ -20,6 +20,8 @@ from .ingest_pipeline import store_routing_decision
 
 
 logger = logging.getLogger("civicquant.phase2")
+OPENAI_EXTRACTOR_NAME = "extract-and-score-openai-v1"
+EXTRACTION_SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -94,8 +96,12 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
         return summary
 
     try:
-        if settings.phase2_extraction_enabled and not settings.openai_api_key:
+        if not settings.phase2_extraction_enabled:
+            raise ValueError("PHASE2_EXTRACTION_ENABLED must be true for phase2 extraction job")
+        if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when PHASE2_EXTRACTION_ENABLED=true")
+
+        logger.info("Using extractor: %s", OPENAI_EXTRACTOR_NAME)
 
         client = OpenAiExtractionClient(
             api_key=settings.openai_api_key or "",
@@ -132,14 +138,37 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
 
                 extraction = db.query(Extraction).filter_by(raw_message_id=raw.id).one_or_none()
                 if extraction is None:
-                    extraction = Extraction(raw_message_id=raw.id, extraction_json=parsed)
+                    extraction = Extraction(
+                        raw_message_id=raw.id,
+                        extractor_name=OPENAI_EXTRACTOR_NAME,
+                        schema_version=EXTRACTION_SCHEMA_VERSION,
+                        payload_json=parsed,
+                    )
                     db.add(extraction)
+                extraction.extractor_name = OPENAI_EXTRACTOR_NAME
+                extraction.schema_version = EXTRACTION_SCHEMA_VERSION
                 extraction.model_name = llm_response.model_name
+                extraction.event_time = extraction_model.event_time
+                extraction.topic = extraction_model.topic
+                extraction.impact_score = float(extraction_model.impact_score)
+                extraction.confidence = float(extraction_model.confidence)
+                extraction.sentiment = extraction_model.sentiment
+                extraction.is_breaking = bool(extraction_model.is_breaking)
+                extraction.breaking_window = extraction_model.breaking_window
+                extraction.event_fingerprint = extraction_model.event_fingerprint
                 extraction.prompt_version = prompt.prompt_version
                 extraction.processing_run_id = run_id
                 extraction.llm_raw_response = llm_response.raw_text
                 extraction.validated_at = datetime.utcnow()
-                extraction.extraction_json = parsed
+                extraction.payload_json = parsed
+                extraction.metadata_json = {
+                    "used_openai": llm_response.used_openai,
+                    "openai_model": llm_response.model_name,
+                    "openai_response_id": llm_response.openai_response_id,
+                    "latency_ms": llm_response.latency_ms,
+                    "retries": llm_response.retries,
+                    "fallback_reason": None,
+                }
                 db.flush()
 
                 decision = route_extraction(extraction_model)
@@ -159,14 +188,32 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
             except ExtractionValidationError as e:
                 state.status = "failed"
                 state.last_error = f"validation_error:{e}"
+                logger.warning(
+                    "phase2_extraction_failed raw_message_id=%s reason=%s fallback_reason=%s",
+                    raw.id,
+                    "validation_error",
+                    str(e),
+                )
                 summary.failed += 1
             except ProviderError as e:
                 state.status = "failed"
                 state.last_error = f"provider_error:{e}"
+                logger.warning(
+                    "phase2_extraction_failed raw_message_id=%s reason=%s fallback_reason=%s",
+                    raw.id,
+                    "provider_error",
+                    str(e),
+                )
                 summary.failed += 1
             except Exception as e:  # noqa: BLE001
                 state.status = "failed"
                 state.last_error = f"persistence_error:{type(e).__name__}"
+                logger.exception(
+                    "phase2_extraction_failed raw_message_id=%s reason=%s fallback_reason=%s",
+                    raw.id,
+                    "persistence_error",
+                    type(e).__name__,
+                )
                 summary.failed += 1
             finally:
                 summary.processed += 1

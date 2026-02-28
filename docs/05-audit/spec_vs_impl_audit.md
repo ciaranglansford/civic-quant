@@ -293,3 +293,33 @@ This yields immediate compliance on the highest-priority intended requirement (s
 1. **Whether extraction must be DB-enforced one-to-one:** inspect planning artifacts under `user-stories/` and `plans/` for explicit acceptance criteria.
 2. **Whether event_action should ever be `update` pre-upsert:** inspect any route/rules spec outside `/docs` and product notes in `user-stories/dedup_and_events.md`.
 3. **Latency target enforceability:** inspect deployment/SLO docs and monitoring config (if any external repo or infrastructure docs exist).
+
+---
+
+## Phase 2 Extraction Audit Entry (MVP Retrieval Schema)
+
+### Scope
+
+- Extractor identity selection for phase2 runs.
+- OpenAI usage verification via persisted metadata.
+- Failure safety behavior (no silent stub substitution).
+
+### Verification Points
+
+1. `extractions.extractor_name` is canonical identity and is set to `extract-and-score-openai-v1` on OpenAI path.
+2. `model_name` is retained for compatibility only and is not used as extraction identity.
+3. Typed retrieval columns are persisted for API filtering:
+   - `topic`, `event_time`, `impact_score`, `confidence`, `sentiment`, `is_breaking`, `breaking_window`, `event_fingerprint`.
+4. Full validated payload persists in `payload_json`.
+5. Provider telemetry persists in `metadata_json`:
+   - `used_openai`, `openai_model`, `openai_response_id`, `latency_ms`, `retries`, `fallback_reason`.
+6. On validation/provider failure:
+   - `message_processing_states.status=failed`
+   - no silent stub extraction row substitution.
+
+### Status
+
+- Implemented in phase2 service and extraction persistence model.
+- Retrieval index alignment added:
+  - `idx_extractions_topic_event_time`
+  - `idx_extractions_topic_event_time_impact`.

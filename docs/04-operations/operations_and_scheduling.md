@@ -124,3 +124,44 @@ Describe how to operate the Civicquant pipeline and how periodic jobs (especiall
 - Required structured fields in logs: `processing_run_id`, `raw_message_id`, `status`, `attempt_count`, `prompt_version`.
 - Distinguish error classes: `provider_error`, `validation_error`, `persistence_error`.
 - Overlapping scheduler attempts should log and exit without duplicate processing.
+
+## Phase 2 Extraction Operation (MVP)
+
+### Commands
+
+- Reset schema (destructive, dev-only):
+  - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+- Run phase2 extraction:
+  - `python -m app.jobs.run_phase2_extraction`
+- Validate OpenAI call path:
+  - `python -m app.jobs.test_openai_extract`
+
+### Expected Logs
+
+- Startup config line:
+  - `phase2_config phase2_extraction_enabled=<bool> openai_api_key_present=<bool> openai_model=<value>`
+- Extractor selection line:
+  - `Using extractor: extract-and-score-openai-v1`
+- Completion summary:
+  - `phase2_run_done ... selected=<n> processed=<n> completed=<n> failed=<n> skipped=<n>`
+
+### Expected DB Fields (`extractions`)
+
+- `extractor_name = extract-and-score-openai-v1`
+- `schema_version = 1`
+- typed retrieval fields populated from validated output:
+  - `topic`, `event_time`, `impact_score`, `confidence`, `sentiment`, `is_breaking`, `breaking_window`, `event_fingerprint`
+- `payload_json` contains full validated extraction output.
+- `metadata_json` contains provider telemetry:
+  - `used_openai`, `openai_model`, `openai_response_id`, `latency_ms`, `retries`, `fallback_reason`
+
+### Troubleshooting: Stub Identity Seen Instead of OpenAI
+
+1. Verify job logs include `Using extractor: extract-and-score-openai-v1`.
+2. Verify env values loaded by startup log:
+   - `phase2_extraction_enabled=true`
+   - `openai_api_key_present=true`
+3. If schema was from an older run, reset dev schema and rerun:
+   - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+4. Query the latest extraction rows and inspect:
+   - `extractor_name`, `model_name`, `payload_json`, `metadata_json`.

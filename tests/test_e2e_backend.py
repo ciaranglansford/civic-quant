@@ -5,6 +5,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +69,12 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
 
     def fake_extract(self, prompt_text: str):
         return extraction_llm_client.LlmResponse(
+            extractor_name="extract-and-score-openai-v1",
+            used_openai=True,
             model_name="gpt-4o-mini",
+            openai_response_id="resp_test_1",
+            latency_ms=42,
+            retries=0,
             raw_text='{"topic":"central_banks","entities":{"countries":["EU"],"orgs":["ECB"],"people":[],"tickers":["EUR"]},"affected_countries_first_order":["EU"],"market_stats":[{"label":"move","value":0.5,"unit":"%","context":"EUR"}],"sentiment":"neutral","confidence":0.9,"impact_score":55,"is_breaking":false,"breaking_window":"none","event_time":"2025-01-01T00:00:00","source_claimed":null,"summary_1_sentence":"ECB signals a policy shift.","keywords":["ECB","EUR"],"event_fingerprint":"fingerprint-1"}',
         )
 
@@ -88,7 +94,21 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
 
     with SessionLocal() as db:
         raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2").one()
-        assert db.query(Extraction).filter(Extraction.raw_message_id == raw.id).count() == 1
+        extraction_rows = db.query(Extraction).filter(Extraction.raw_message_id == raw.id).all()
+        assert len(extraction_rows) == 1
+        extraction = extraction_rows[0]
+        assert extraction.extractor_name == "extract-and-score-openai-v1"
+        assert extraction.schema_version == 1
+        assert extraction.topic == "central_banks"
+        assert extraction.impact_score == 55
+        assert extraction.confidence == 0.9
+        assert extraction.sentiment == "neutral"
+        assert extraction.event_fingerprint == "fingerprint-1"
+        assert extraction.payload_json["topic"] == "central_banks"
+        assert extraction.metadata_json["used_openai"] is True
+        assert extraction.metadata_json["openai_model"] == "gpt-4o-mini"
+        assert extraction.metadata_json["openai_response_id"] == "resp_test_1"
+        assert extraction.metadata_json["latency_ms"] == 42
         states = db.query(MessageProcessingState).all()
         assert any(s.status == "completed" for s in states)
 
@@ -99,7 +119,15 @@ def test_phase2_validation_failure_marks_state_failed(monkeypatch, client: TestC
     from app.services import extraction_llm_client
 
     def bad_extract(self, prompt_text: str):
-        return extraction_llm_client.LlmResponse(model_name="gpt-4o-mini", raw_text='{"bad":"shape"}')
+        return extraction_llm_client.LlmResponse(
+            extractor_name="extract-and-score-openai-v1",
+            used_openai=True,
+            model_name="gpt-4o-mini",
+            openai_response_id="resp_test_2",
+            latency_ms=7,
+            retries=0,
+            raw_text='{"bad":"shape"}',
+        )
 
     monkeypatch.setattr(extraction_llm_client.OpenAiExtractionClient, "extract", bad_extract)
 
@@ -112,3 +140,28 @@ def test_phase2_validation_failure_marks_state_failed(monkeypatch, client: TestC
         failed = db.query(MessageProcessingState).filter(MessageProcessingState.status == "failed").all()
         assert failed
         assert "validation_error" in (failed[-1].last_error or "")
+
+
+def test_phase2_disabled_raises_error(client: TestClient):
+    from app.config import Settings
+    from app.db import SessionLocal
+    from app.services.phase2_processing import process_phase2_batch
+
+    with SessionLocal() as db:
+        with pytest.raises(ValueError, match="PHASE2_EXTRACTION_ENABLED must be true"):
+            process_phase2_batch(
+                db=db,
+                settings=Settings(
+                    phase2_extraction_enabled=False,
+                    openai_api_key="test-key",
+                    database_url=os.environ["DATABASE_URL"],
+                ),
+            )
+
+
+def test_extractions_indexes_exist(client: TestClient):
+    from app.db import engine
+
+    index_names = {idx["name"] for idx in inspect(engine).get_indexes("extractions")}
+    assert "idx_extractions_topic_event_time" in index_names
+    assert "idx_extractions_topic_event_time_impact" in index_names
