@@ -1,99 +1,74 @@
 # Deployment and Runtime Operations
 
-## deployment-overview
+## Deployment Overview
 
-No container files or CI/CD workflow definitions are present in this repository. Deployment details below are inferred from runtime entrypoints and settings in code.
+The system runs as multiple processes sharing one SQL database.
 
-## environments
+Typical topology:
+- API process (`uvicorn app.main:app`)
+- Listener process (`python -m listener.telegram_listener`)
+- Phase2 extraction job (scheduled or manual)
+- Digest/reporting job (scheduled or manual)
 
-## local-development
-Typical local setup inferred from code:
-1. Install Python dependencies from `requirements.txt`.
-2. Set `DATABASE_URL`.
-3. Start API server (`uvicorn app.main:app`).
-4. Optionally run listener and digest job as separate processes.
+## Process-to-Stage Mapping
 
-## production-like
-Likely production topology:
-- **Process 1**: ASGI server hosting FastAPI app.
-- **Process 2**: Telegram listener worker.
-- **Process 3**: Scheduled digest runner (cron or scheduler).
-- **Shared DB**: SQL database configured via `DATABASE_URL`.
+| Process/Job | Pipeline stages | Purpose |
+|---|---|---|
+| Listener | Stage 1 ingress source | Capture bulletins from Telegram feed and forward to API |
+| API ingest + normalization | Stage 1-2 | Validate payloads, write immutable raw records, normalize text |
+| Phase2 extraction job | Stage 3-5 | Extract literal reported claim, triage deterministically, cluster events |
+| Digest job | Stage 8 | Build/publish event-level reports |
+| Enrichment workflow (future) | Stage 7 | Selective external validation/corroboration |
 
-Uncertainty: no infra-as-code or process manager config is checked in, so exact orchestration method is not specified.
+## Scheduling Responsibility Split
 
-## runtime-requirements
+### Extraction cadence
+- Higher-frequency operational loop.
+- Recommended schedule: every 10 minutes.
+- Keeps event clusters fresh and ready for reporting.
 
-## software
-- Python with packages in `requirements.txt`:
-  - FastAPI/Uvicorn
-  - SQLAlchemy + psycopg2-binary
-  - Pydantic + pydantic-settings
-  - httpx
-  - Telethon
+### Reporting cadence
+- Lower-frequency summary loop.
+- Recommended schedule: every 4 hours (or configured window).
+- Publishes event-level aggregates.
 
-## services
-- SQL database reachable through `DATABASE_URL`.
-- Telegram access:
-  - MTProto credentials for listener process.
-  - Bot token/chat ID for digest publication.
+## Failure-Domain Notes
 
-## configuration-and-secrets
+- Capture can continue if extraction is paused/failing; raw ingest remains source-of-record.
+- Extraction delays reduce event freshness but do not erase raw bulletin history.
+- Reporting quality depends on freshness/completeness of extraction + event clustering stages.
+- Full pipeline recovery is possible via reprocessing derived tables while preserving raw records.
 
-### backend-required
+## Runtime Requirements
+
+### Required baseline
 - `DATABASE_URL`
+- Python dependencies from `requirements.txt`
 
-### backend-optional
-- `API_HOST`
-- `API_PORT`
-- `VIP_DIGEST_HOURS`
-- `TG_BOT_TOKEN`
-- `TG_VIP_CHAT_ID`
-
-### listener-required
+### Listener-specific
 - `TG_API_ID`
 - `TG_API_HASH`
 - `TG_SESSION_NAME`
 - `TG_SOURCE_CHANNEL`
 - `INGEST_API_BASE_URL`
 
-### secret-handling-note
-- All sensitive keys are expected from env vars or `.env` file loading via Pydantic settings.
-- No secret vault integration is implemented in code.
+### Phase2 extraction
+- `PHASE2_EXTRACTION_ENABLED=true`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_TIMEOUT_SECONDS`
+- `OPENAI_MAX_RETRIES`
 
-## database-lifecycle
+### Reporting
+- `TG_BOT_TOKEN`
+- `TG_VIP_CHAT_ID`
 
-On API startup (`lifespan`), `init_db()` runs `Base.metadata.create_all(bind=engine)`.
+## Health and Observability
 
-Operational implication:
-- Tables auto-create if absent.
-- No explicit migration/versioning mechanism is present.
+- Liveness endpoint: `GET /health`
+- Logs are primary observability source.
+- Track logs by stage: capture, extraction, triage, clustering, reporting.
 
-## scheduling
+## Caveat
 
-Digest publication is not automatic inside API runtime; it is implemented as a separate job entrypoint (`app.jobs.run_digest`).
-
-Expected deployment action:
-- Configure scheduler (cron/systemd timer/job runner) to execute at desired interval.
-
-## health-and-observability
-
-- Liveness endpoint: `GET /health`.
-- Logging is configured with `logging.basicConfig(level=INFO)` in backend lifecycle and listener module.
-- No built-in metrics or distributed tracing instrumentation.
-
-## Phase 2 Extraction Runtime Configuration
-
-The scheduled extraction processor uses separate environment-driven settings:
-
-- `PHASE2_EXTRACTION_ENABLED` (bool)
-- `PHASE2_BATCH_SIZE` (int)
-- `OPENAI_API_KEY` (secret)
-- `OPENAI_MODEL` (string)
-- `OPENAI_TIMEOUT_SECONDS` (int/float)
-- `OPENAI_MAX_RETRIES` (int)
-
-Deployment notes:
-- Keep secrets externalized (environment or secret manager).
-- Backend API process may run without OpenAI config when Phase 2 processor is disabled.
-- Scheduler process should fail fast with clear error if enabled but required OpenAI settings are missing.
+No standardized infrastructure-as-code or migration framework is fully established in this repository yet. Operational control currently relies on documented jobs and scripts.

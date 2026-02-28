@@ -1,83 +1,121 @@
-## Phase 1 MVP Execution Checklist
+## Civicquant Execution Checklist (Transition-Focused)
 
-This checklist tracks implementation of the Phase 1 MVP. Each item uses the format:
+Status legend:
+- `implemented`: present and working in current repo
+- `stabilize`: implemented but needs hardening/clarity
+- `next`: near-term implementation target
+- `later`: deferred/future work
 
-- **Pattern**: `[status] ID (area) - description`
-- **Status values**: `pending`, `in_progress`, `done`, `blocked`
+### Semantic Safety Checks (Always-On)
 
-### Global Conventions
+- [stabilize] SEM-01 - Raw messages remain immutable source-of-record data.
+- [stabilize] SEM-02 - Normalization is deterministic preprocessing, not verification.
+- [stabilize] SEM-03 - Extraction captures literal reported claims, not truth adjudication.
+- [stabilize] SEM-04 - `confidence` interpreted as extraction certainty only.
+- [stabilize] SEM-05 - `impact_score` interpreted as face-value claim significance.
+- [stabilize] SEM-06 - Reporting derives from event-level structured data, not raw text.
 
-- **Idempotency**: All ingestion and event operations must be safe to retry.
-- **Determinism**: Routing and dedup decisions must be reproducible from inputs and configuration.
-- **No trading advice**: Outputs must not contain prescriptive trading recommendations.
+### Stage 1: Raw Ingest
 
-### Ingestion – Telegram Listener (MTProto)
+- [implemented] ING-01 - Poll-based listener captures source bulletins and posts ingest payloads.
+- [implemented] ING-02 - Ingest endpoint validates payload and writes idempotent raw records.
+- [stabilize] ING-03 - Verify ingest observability fields for replay/debug workflows.
 
-- [pending] ING-01 (ingestion) - Configure Telethon client with API credentials and session storage.
-- [pending] ING-02 (ingestion) - Implement subscription to a single source Telegram channel by username or ID.
-- [pending] ING-03 (ingestion) - On each new message, build payload with all required fields from the spec.
-- [pending] ING-04 (ingestion) - POST payload to `/ingest/telegram` with retries on transient failures.
-- [pending] ING-05 (ingestion) - Log ingest successes and failures with minimal structured fields.
+Run/verify:
+- Run listener: `python -m listener.telegram_listener`
+- Verify new rows in `raw_messages`
+- Verify duplicate source/message IDs return `duplicate` behavior
 
-### Backend – Ingest Endpoint and Storage
+### Stage 2: Structural Normalization
 
-- [pending] BE-01 (backend_ingest) - Define `TelegramIngestPayload` schema mirroring the spec fields.
-- [pending] BE-02 (backend_ingest) - Implement `/ingest/telegram` FastAPI endpoint with request validation.
-- [pending] BE-03 (backend_ingest) - Implement deterministic message normalization function.
-- [pending] BE-04 (backend_ingest) - Persist raw messages as immutable rows in `raw_messages`.
-- [pending] BE-05 (backend_ingest) - Enforce idempotency on `(source_channel_id, telegram_message_id)` via DB constraint and application logic.
-- [pending] BE-06 (backend_ingest) - Store `normalized_text` alongside raw fields.
+- [implemented] NOR-01 - Deterministic normalization step exists before extraction.
+- [next] NOR-02 - Deepen wire-style normalization coverage (markers/datelines/attribution variants).
+- [stabilize] NOR-03 - Keep normalization deterministic and auditable.
 
-### Extraction – Structured JSON (Stubbed)
+Run/verify:
+- Trigger ingest with representative wire bulletins
+- Inspect `raw_messages.normalized_text`
 
-- [pending] EXT-01 (extraction) - Implement `ExtractionAgent` service interface with clear input/output types.
-- [pending] EXT-02 (extraction) - Implement stub extraction that produces valid JSON conforming to `llm_extraction_schema`.
-- [pending] EXT-03 (extraction) - Store extraction results in `extractions` table with `model_name` and timestamps.
-- [pending] EXT-04 (extraction) - Validate extraction JSON before storage and log validation errors.
+### Stage 3: AI Claim Extraction
 
-### Routing – Logic Gates
+- [implemented] EXT-01 - Phase2 extraction job runs OpenAI-backed extraction with strict schema validation.
+- [stabilize] EXT-02 - Enforce claim-capture semantics and attribution/uncertainty preservation.
+- [next] EXT-03 - Improve extraction quality checks on repetitive/contradictory bulletin patterns.
 
-- [pending] ROUT-01 (routing) - Implement a configuration structure (in-code or YAML/JSON) for routing thresholds and destinations.
-- [pending] ROUT-02 (routing) - Implement routing function that maps extraction outputs to:
-  - `store_to` (destinations),
-  - `publish_priority`,
-  - `requires_evidence`,
-  - `event_action`,
-  - `flags`.
-- [pending] ROUT-03 (routing) - Persist routing decisions in `routing_decisions` table for every ingested message.
-- [pending] ROUT-04 (routing) - Ensure routing is deterministic given the same extraction and configuration.
+Run/verify:
+- Run extraction batch: `python -m app.jobs.run_phase2_extraction`
+- Probe extractor: `python -m app.jobs.test_openai_extract`
+- Validate extraction rows (`extractor_name`, typed fields, payload/metadata JSON)
 
-### Dedup + Event Upsert
+### Stage 4: Deterministic Post-Processing / Triage
 
-- [pending] EVT-01 (events) - Define event model fields including `event_fingerprint`, `topic`, `summary_1_sentence`, `impact_score`, `is_breaking`, `breaking_window`, `event_time`.
-- [pending] EVT-02 (events) - Implement function to compute event time windows (default, breaking, macro_econ).
-- [pending] EVT-03 (events) - Implement create/update/ignore logic based on `event_fingerprint` and time window.
-- [pending] EVT-04 (events) - Implement `event_messages` linking table between events and raw messages.
-- [pending] EVT-05 (events) - Update event record when new numeric facts or entities appear, preserving previous state via timestamps.
-- [pending] EVT-06 (events) - Log event update actions, including why an event was updated or created.
+- [implemented] TRI-01 - Deterministic routing logic persists triage outputs.
+- [next] TRI-02 - Expand deterministic canonicalization and triage action categories.
+- [later] TRI-03 - Add richer promotion logic for downstream reporting queues.
 
-### Storage Model and Indexing
+Run/verify:
+- Inspect `routing_decisions` for deterministic outcomes
+- Confirm repeated extraction inputs produce stable routing decisions
 
-- [pending] DB-01 (storage) - Create tables: `raw_messages`, `extractions`, `events`, `event_messages`, `routing_decisions`, `published_posts`.
-- [pending] DB-02 (storage) - Add unique constraint on `(source_channel_id, telegram_message_id)` in `raw_messages`.
-- [pending] DB-03 (storage) - Add time-based indexes for message and event queries.
-- [pending] DB-04 (storage) - Add index on `event_fingerprint` in `events`.
+### Stage 5: Event Clustering
 
-### Publishing – 4-Hour VIP Digests
+- [implemented] EVT-01 - Event upsert clusters observations by fingerprint + window logic.
+- [stabilize] EVT-02 - Validate clustering behavior on repetitive/incremental/contradictory bulletins.
+- [next] EVT-03 - Refine update heuristics for evolving event quality.
 
-- [pending] PUB-01 (publishing) - Implement query to fetch events in the last `VIP_DIGEST_HOURS` hours grouped by topic.
-- [pending] PUB-02 (publishing) - Implement digest text generator enforcing:
-  - 1-sentence summary per item.
-  - Key numeric facts and entities.
-  - Corroboration label (stubbed to `unknown` or simple rule in Phase 1).
-- [pending] PUB-03 (publishing) - Implement Telegram bot sender that posts digest text to VIP chat.
-- [pending] PUB-04 (publishing) - Persist each published digest in `published_posts` with `destination`, `content`, `content_hash`, and `published_at`.
+Run/verify:
+- Inspect `events` and `event_messages`
+- Confirm one evolving event can aggregate multiple bulletin observations
 
-### Observability and Audit
+### Stage 6: Indexed Dataset Construction
 
-- [pending] OBS-01 (observability) - Log ingest success/failure with request ID and telegram identifiers.
-- [pending] OBS-02 (observability) - Log extraction success/failure and validation status.
-- [pending] OBS-03 (observability) - Log routing decisions including which rules fired.
-- [pending] OBS-04 (observability) - Log dedup decisions including candidate events considered and chosen.
-- [pending] OBS-05 (observability) - Log published digests with references to event IDs included.
+- [implemented] IDX-01 - Typed extraction fields and indexes exist for core retrieval filters.
+- [next] IDX-02 - Validate query patterns for topic/time/impact filters.
+- [later] IDX-03 - Publish retrieval interface docs once retrieval endpoints exist.
 
+Run/verify:
+- Query extraction/event tables with topic + time range + score filters
+
+### Stage 7: Deferred Enrichment Hooks
+
+- [later] ENR-01 - Add selective enrichment trigger points for high-value events.
+- [later] ENR-02 - Define corroboration/reliability persistence model.
+
+Run/verify:
+- N/A (deferred by design)
+
+### Stage 8: Scheduled Reporting
+
+- [implemented] REP-01 - Digest job generates event-level reports.
+- [stabilize] REP-02 - Validate report quality against clustered event data freshness.
+- [next] REP-03 - Add richer scheduled reporting variants once triage/promote tracks mature.
+
+Run/verify:
+- Run digest: `python -m app.jobs.run_digest`
+- Verify output and `published_posts` row creation/dedup behavior
+
+### Reprocessing Tasks
+
+- [implemented] REPROC-01 - Preserve raw and clear derived artifacts:
+  - `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages`
+- [implemented] REPROC-02 - Full dev reset path:
+  - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+- [stabilize] REPROC-03 - Document when to use partial clear vs full reset in runbooks.
+
+### Test Execution Tasks
+
+- [implemented] TEST-01 - Full suite: `pytest -q`
+- [implemented] TEST-02 - Targeted extraction client tests: `pytest -q tests/test_extraction_llm_client.py`
+- [implemented] TEST-03 - Targeted phase2/e2e tests: `pytest -q tests/test_e2e_backend.py`
+- [next] TEST-04 - Add more deterministic normalization/triage test coverage
+
+### Story Mapping (Phase 2 Backlog IDs)
+
+- Stage 2 normalization: `BE-11`
+- Stage 3 extraction semantics: `BE-12`
+- Stage 4 canonicalization/triage: `BE-13`, `BE-14`
+- Stage 5 event-cluster refinement: `BE-15`
+- Stage 6 entity indexing: `DB-03`
+- Stage 7 deferred enrichment hooks: `BE-16`
+- Stage 8 reporting readiness: `BE-17`
+- Stage 9 runbook support: `OPS-04`

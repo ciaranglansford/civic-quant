@@ -2,166 +2,122 @@
 
 ### Purpose
 
-Describe how to operate the Civicquant pipeline and how periodic jobs (especially digests) are scheduled in Phase 1 MVP.
+Primary local runbook for executing the wire-bulletin pipeline end-to-end and validating stage outputs.
 
-### Runtime Components
+## Runtime Components
 
-- **Backend API**
-  - Process: `uvicorn app.main:app --reload` (or similar).
-  - Role: Handle ingest, processing, and data storage.
+- Backend API: `uvicorn app.main:app`
+- Listener (capture): `python -m listener.telegram_listener`
+- Phase2 extraction: `python -m app.jobs.run_phase2_extraction`
+- Reporting digest: `python -m app.jobs.run_digest`
 
-- **Telegram Listener**
-  - Process: `python -m listener.telegram_listener`.
-  - Role: Listen to source channel and send messages to backend.
+## Developer Run Sequence (Local)
 
-- **Digest Job**
-  - Process: `python -m app.jobs.run_digest` (or equivalent entrypoint).
-  - Role: Generate and publish 4-hour digests to VIP chat.
+1. Environment + dependencies
+- Ensure Python environment is active.
+- Install dependencies:
+  - `pip install -r requirements.txt`
+- Configure `.env` for DB, listener, phase2 extraction, and digest publishing as needed.
 
-### Environment Configuration
+2. Start backend (Stages 1-2 entrypoint)
+- Command:
+  - `uvicorn app.main:app --reload`
+- Expected outputs:
+  - API responds on `/health`
+  - DB tables available
 
-- **Backend / DB**
-  - `DATABASE_URL` – Postgres connection string.
-  - `API_HOST` – API bind host (default `0.0.0.0`).
-  - `API_PORT` – API port (default `8000`).
-  - `VIP_DIGEST_HOURS` – Digest time window in hours (default `4`).
+3. Start listener (optional; Stage 1 capture source)
+- Command:
+  - `python -m listener.telegram_listener`
+- Expected outputs:
+  - Poll loop logs
+  - New ingest payload posts
+  - New `raw_messages` rows
 
-- **Telegram Listener**
-  - `TG_API_ID`
-  - `TG_API_HASH`
-  - `TG_SESSION_NAME`
-  - `TG_SOURCE_CHANNEL`
-  - `INGEST_API_BASE_URL`
+4. Run extraction batch (Stages 3-5)
+- Command:
+  - `python -m app.jobs.run_phase2_extraction`
+- Expected outputs:
+  - extractor selection log
+  - processing summary log
+  - updates in `extractions`, `routing_decisions`, `events`, `event_messages`
 
-- **Telegram Publishing**
-  - `TG_BOT_TOKEN`
-  - `TG_VIP_CHAT_ID`
+5. Run digest/report (Stage 8)
+- Command:
+  - `python -m app.jobs.run_digest`
+- Expected outputs:
+  - digest publish/skip logs
+  - `published_posts` updates
 
-### Scheduling – Digests
+6. Validation checks
+- Verify stage outputs in DB:
+  - Stage 1: `raw_messages`
+  - Stage 3: `extractions`
+  - Stage 4: `routing_decisions`
+  - Stage 5: `events`, `event_messages`
+  - Stage 8: `published_posts`
 
-- **Cadence**
-  - Default: every `4` hours, configured by `VIP_DIGEST_HOURS`.
-  - Future: additional cadences for breaking queues (15m/1h/4h).
+## When to Run What
 
-- **Mechanism (Phase 1)**
-  - Use OS-level cron or a simple scheduler to run the digest script:
-    - Example cron expression for every 4 hours:
-      - `0 */4 * * *  python -m app.jobs.run_digest`
+- Run listener when validating capture behavior against live/burst bulletin feeds.
+- Run phase2 extraction when validating claim extraction, deterministic triage, and event clustering.
+- Run digest when validating event-level reporting outputs.
 
-- **Digest Job Flow**
-  - Read `VIP_DIGEST_HOURS` from configuration.
-  - Query events in the last `VIP_DIGEST_HOURS`.
-  - Build digest text grouped by topic.
-  - Send digest via Telegram Bot API to `TG_VIP_CHAT_ID`.
-  - Insert `published_posts` record with content hash and timestamp.
+## Data Lifecycle + Reprocess Safety
 
-### Future Scheduling – Breaking Queues (Phase 2+)
+- Raw data (`raw_messages`) is immutable source-of-record.
+- Derived data (`extractions`, `routing_decisions`, `events`, `event_messages`, `published_posts`, processing state) is reprocessable.
 
-- **Concept**
-  - Maintain additional queues for:
-    - `breaking_15m`
-    - `breaking_1h`
-    - `breaking_4h`
-  - Use `is_breaking` and `breaking_window` from extraction.
+### Reprocess Commands
 
-- **Expected Behavior**
-  - Jobs run at higher frequency (e.g., every 15 minutes) for breaking items.
-  - Thresholds for which events appear in breaking digests are controlled by routing configuration.
+- Preserve raw, clear derived:
+  - `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages`
+- Full dev schema reset (destructive):
+  - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
 
-### Operational Runbooks (Phase 1)
+Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full reset for schema-level resets.
 
-- **Start Backend**
-  - Ensure `DATABASE_URL` is set and database is reachable.
-  - Run API process.
-  - Confirm health via `/health` endpoint (to be implemented) or simple status check.
+## Scheduling
 
-- **Start Listener**
-  - Ensure Telegram credentials and ingest base URL are set.
-  - Run listener process.
-  - Verify that new messages from the source channel result in rows in `raw_messages`.
-
-- **Run Digest Manually**
-  - Ensure API and database are running and events exist.
-  - Run digest script.
-  - Verify message appears in VIP Telegram chat and `published_posts`.
-
-### Monitoring and Alerts (Manual Phase 1)
-
-- **What to monitor**
-  - API errors or high 5xx rate.
-  - Listener connection errors to Telegram.
-  - Digest job failures.
-  - Database connectivity and disk usage.
-
-- **How**
-  - Initially via log inspection and simple OS tools.
-  - Future integration with monitoring stack (Prometheus, Grafana, etc.).
-
-
-## Scheduling – Phase 2 Extraction Processing
-
-### Cadence
-
-- Run every 10 minutes.
-- Example cron:
+### Phase2 Extraction Cadence
+- Recommended: every 10 minutes
+- Example:
   - `*/10 * * * * python -m app.jobs.run_phase2_extraction`
 
-### Job Behavior
+### Digest Reporting Cadence
+- Recommended: every 4 hours (or `VIP_DIGEST_HOURS`)
+- Example:
+  - `0 */4 * * * python -m app.jobs.run_digest`
 
-- Acquire a single-run lock (DB advisory lock or lock-row equivalent).
-- Select eligible rows from `raw_messages` using processing-state status/lease criteria.
-- Process in bounded batches with configured size.
-- Persist per-message status (`completed`/`failed`) and run summary counts.
+## Targeted Test Commands
 
-### Optional Manual Trigger (Internal)
+- Full suite:
+  - `pytest -q`
+- Extraction client tests:
+  - `pytest -q tests/test_extraction_llm_client.py`
+- Pipeline/e2e tests:
+  - `pytest -q tests/test_e2e_backend.py`
 
-- Optional endpoint: `POST /admin/process/phase2-extractions`.
-- Must call the same processing service as scheduled job.
-- Should be admin/internal-only and disabled by default unless auth guard is configured.
+## Expected Extraction Logs and Side Effects
 
-### Failure Handling and Visibility
+### Key logs
+- `phase2_config phase2_extraction_enabled=<bool> openai_api_key_present=<bool> openai_model=<value>`
+- `Using extractor: extract-and-score-openai-v1`
+- `phase2_run_done ... selected=<n> processed=<n> completed=<n> failed=<n> skipped=<n>`
 
-- Required structured fields in logs: `processing_run_id`, `raw_message_id`, `status`, `attempt_count`, `prompt_version`.
-- Distinguish error classes: `provider_error`, `validation_error`, `persistence_error`.
-- Overlapping scheduler attempts should log and exit without duplicate processing.
+### Key DB side effects
+- `extractions`: typed extraction fields + `payload_json` + `metadata_json`
+- `routing_decisions`: deterministic triage output
+- `events`/`event_messages`: event cluster updates
 
-## Phase 2 Extraction Operation (MVP)
+## Troubleshooting: Repetitive or Contradictory Bulletins
 
-### Commands
+- Repetition is expected in wire feeds; validate event clustering behavior, not one-message-one-event assumptions.
+- Contradictory bulletins should appear as additional observations and may update existing event clusters.
+- Inspect progression across `raw_messages` -> `extractions` -> `events/event_messages`.
 
-- Reset schema (destructive, dev-only):
-  - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
-- Run phase2 extraction:
-  - `python -m app.jobs.run_phase2_extraction`
-- Validate OpenAI call path:
-  - `python -m app.jobs.test_openai_extract`
+## Troubleshooting: OpenAI Extraction Not Being Used
 
-### Expected Logs
-
-- Startup config line:
-  - `phase2_config phase2_extraction_enabled=<bool> openai_api_key_present=<bool> openai_model=<value>`
-- Extractor selection line:
-  - `Using extractor: extract-and-score-openai-v1`
-- Completion summary:
-  - `phase2_run_done ... selected=<n> processed=<n> completed=<n> failed=<n> skipped=<n>`
-
-### Expected DB Fields (`extractions`)
-
-- `extractor_name = extract-and-score-openai-v1`
-- `schema_version = 1`
-- typed retrieval fields populated from validated output:
-  - `topic`, `event_time`, `impact_score`, `confidence`, `sentiment`, `is_breaking`, `breaking_window`, `event_fingerprint`
-- `payload_json` contains full validated extraction output.
-- `metadata_json` contains provider telemetry:
-  - `used_openai`, `openai_model`, `openai_response_id`, `latency_ms`, `retries`, `fallback_reason`
-
-### Troubleshooting: Stub Identity Seen Instead of OpenAI
-
-1. Verify job logs include `Using extractor: extract-and-score-openai-v1`.
-2. Verify env values loaded by startup log:
-   - `phase2_extraction_enabled=true`
-   - `openai_api_key_present=true`
-3. If schema was from an older run, reset dev schema and rerun:
-   - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
-4. Query the latest extraction rows and inspect:
-   - `extractor_name`, `model_name`, `payload_json`, `metadata_json`.
+1. Confirm extraction job logs show `extract-and-score-openai-v1`.
+2. Confirm phase2 env values (`PHASE2_EXTRACTION_ENABLED`, API key presence).
+3. Inspect latest `extractions` rows for `extractor_name`, `payload_json`, and `metadata_json`.

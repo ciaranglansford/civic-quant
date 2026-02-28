@@ -2,180 +2,62 @@
 
 ### Purpose
 
-Describe the logical agents and services in the Civicquant pipeline, including inputs, outputs, side effects, and Phase 1 status.
+Define responsibilities in a wire-bulletin intelligence pipeline and distinguish implemented vs target/future roles.
 
-### ExtractionAgent
+## Current Implementation Services
 
-- **Responsibility**: Convert normalized text and message metadata into structured extraction JSON.
-- **Phase 1 status**: Implemented as stub (no external LLM calls).
+### Bulletin Ingest Service
+- Responsibility: receive listener payloads and persist immutable raw observations idempotently.
+- Inputs: Telegram bulletin payload.
+- Outputs: `raw_messages` row + processing state.
 
-#### Inputs
+### Normalization Service
+- Responsibility: deterministic preprocessing for extraction stability.
+- Inputs: raw bulletin text.
+- Outputs: normalized text.
+- Note: normalization is preprocessing, not verification.
 
-- `normalized_text: string`
-- `message_time: datetime`
-- `source_channel_name: string`
+### Extraction Service (Phase2)
+- Responsibility: convert normalized bulletin into structured reported-claim output.
+- Inputs: normalized text, message time, source channel context.
+- Outputs: validated extraction payload.
+- Semantics:
+  - captures reported claim,
+  - preserves uncertainty/attribution,
+  - does not assert truth.
 
-#### Outputs
+### Routing / Triage Service
+- Responsibility: deterministic ranking and actioning from structured extraction.
+- Inputs: extraction payload.
+- Outputs: routing decision (`store_to`, priority, flags, event action).
 
-- `extraction_json` object with fields:
-  - `topic`
-  - `entities` (countries, orgs, people, tickers)
-  - `affected_countries_first_order`
-  - `market_stats`
-  - `sentiment`
-  - `confidence`
-  - `impact_score`
-  - `is_breaking`
-  - `breaking_window`
-  - `event_time`
-  - `source_claimed`
-  - `summary_1_sentence`
-  - `keywords`
-  - `event_fingerprint`
+### Event Manager Service
+- Responsibility: cluster repetitive/incremental observations into evolving canonical events.
+- Inputs: extraction + raw message id.
+- Outputs: event create/update + link row.
 
-#### Side Effects
+### Reporting Service
+- Responsibility: build scheduled event-level digest/report outputs.
+- Inputs: queried event dataset.
+- Outputs: published report text + publication audit record.
 
-- None directly; caller persists output to `extractions` table.
+## Target-State Additions
 
-#### Expected Code Location
+### Deterministic Post-Processing Layer
+- Canonicalize entities/sources/values before final triage.
+- Reduce model variance and improve retrieval quality.
 
-- Service module in backend (e.g., `app/services/extraction_agent.py`).
+### Entity Indexing Layer
+- Build query-optimized internal dataset for downstream retrieval APIs.
 
-### EvidenceAgent
+### Deferred Validation / Enrichment Layer
+- Selective external corroboration for chosen events.
+- Produces enriched event confidence/corroboration context.
 
-- **Responsibility**: Fetch supporting sources and estimate reliability for high-impact or breaking events.
-- **Phase 1 status**: Not implemented (documented for Phase 2+).
+## Future Optional Agents
 
-#### Inputs
+### Evidence Enrichment Agent (Future)
+- External source collection and corroboration scoring.
 
-- `extraction_json` from `ExtractionAgent`.
-
-#### Outputs
-
-- `evidence_sources[]`
-- `corroboration_status`
-- `reliability_score`
-- `notes`
-
-#### Side Effects
-
-- External HTTP calls to news/search APIs.
-- Writes to `evidence_sources` table (future).
-
-### RoutingAgent (Optional)
-
-- **Responsibility**: Optionally suggest routing destinations and priorities to complement rules engine.
-- **Phase 1 status**: Not used; routing is purely rules-based.
-
-#### Inputs
-
-- `extraction_json`
-- Optional evidence summary.
-
-#### Outputs
-
-- `suggested_destinations[]`
-- `publish_priority_suggestion`
-
-### Routing Rules Engine
-
-- **Responsibility**: Determine `routing_decision` from extraction (and evidence in later phases).
-- **Phase 1 status**: Implemented as deterministic rules.
-
-#### Inputs
-
-- `extraction_json`
-- Routing configuration (thresholds, mappings).
-
-#### Outputs
-
-- `routing_decision` with:
-  - `store_to[]`
-  - `publish_priority`
-  - `requires_evidence`
-  - `event_action`
-  - `flags[]`
-
-#### Side Effects
-
-- Inserts into `routing_decisions` table.
-
-### EventManagerAgent
-
-- **Responsibility**: Manage canonical events and deduplication.
-- **Phase 1 status**: Implemented with fingerprint-based matching and time windows.
-
-#### Inputs
-
-- `extraction_json`
-- `raw_message_id`
-
-#### Outputs
-
-- `event_action` (`create` or `update`)
-- `event_id`
-
-#### Side Effects
-
-- Inserts/updates in `events` table.
-- Inserts in `event_messages` table.
-- Logging of dedup and update decisions.
-
-### PublisherAgent
-
-- **Responsibility**: Build digests and long-form posts from event data.
-- **Phase 1 status**: Implemented for 4-hour VIP digests only.
-
-#### Inputs
-
-- `events_query_results` for time window.
-
-#### Outputs
-
-- `final_post_text`
-- `metadata`
-- `content_hash`
-
-#### Side Effects
-
-- Sends messages via Telegram Bot API.
-- Inserts into `published_posts` table.
-
-
-## Phase 2 ExtractionAgent Contract (Authoritative Behavior)
-
-For scheduled Phase 2 processing, ExtractionAgent execution must follow the repository prompt contract in `plans/llm_usage_and_prompts.md`.
-
-### Required Inputs
-
-- `normalized_text`
-- `message_time`
-- `source_channel_name`
-
-### Required Output Fields (exact; no extra keys)
-
-- `topic`
-- `entities.countries`
-- `entities.orgs`
-- `entities.people`
-- `entities.tickers`
-- `affected_countries_first_order`
-- `market_stats[]`
-- `sentiment`
-- `confidence`
-- `impact_score`
-- `is_breaking`
-- `breaking_window`
-- `event_time`
-- `source_claimed`
-- `summary_1_sentence`
-- `keywords`
-- `event_fingerprint`
-
-### Non-negotiable Runtime Rules
-
-- JSON-only model output.
-- No additional properties.
-- Enum and numeric range validation enforced before persistence.
-- `event_fingerprint` must be deterministic for equivalent input facts.
-- Prompt template is versioned and stored in-repo; each run persists `prompt_version`.
+### Reporting Expansion Agent (Future)
+- Additional report formats/channels beyond digest output.

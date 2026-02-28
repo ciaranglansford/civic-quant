@@ -1,106 +1,49 @@
-# Civicquant Documentation (Code-Derived)
+# Civicquant Documentation Overview
 
-## Project Summary
+## Purpose
 
-This repository implements a market-intelligence ingestion pipeline centered on Telegram messages.
+This section explains what the system is, what is implemented now, and what the target architecture is intended to become.
 
-From the code, the current implemented capabilities are:
-- A FastAPI service with:
-  - `GET /health` for liveness.
-  - `POST /ingest/telegram` for Telegram message ingest.
-- A SQLAlchemy-backed persistence layer for raw messages, extracted structure, routing decisions, canonical events, event-to-message links, and published digest records.
-- A rule-based extraction + routing pipeline (no external LLM call in current implementation).
-- A Telethon-based listener process that consumes Telegram channel messages and forwards them to the ingest API.
-- A digest job that groups recent events and publishes a digest to Telegram via bot API.
+## System Framing
 
-See [Architecture](./ARCHITECTURE.md), [Data Flow](../02-flows/DATA_FLOW.md), and [API](../03-interfaces/API.md).
+Civicquant processes Telegram wire-bulletin feeds (headline/ticker style), not general chat conversation streams.
 
-## Quickstart
+Input characteristics:
+- short, urgent, source-attributed updates,
+- repetitive and incremental observations,
+- occasional contradictions,
+- reported claims that may not yet be confirmed.
 
-## quickstart-prerequisites
-- Python 3.10+ (inferred from runtime artifacts under `__pycache__` and current typing syntax).
-- A reachable SQLAlchemy database URL (`DATABASE_URL` is required at settings load).
-- Optional: Telegram credentials for listener and digest publishing.
+## Current Implementation
 
-## quickstart-install
-```bash
-python -m venv .venv
-source .venv\Scripts\activate
-pip install -r requirements.txt
+- Poll-based listener reads messages from one configured Telegram source and forwards to backend ingest.
+- Ingest persists immutable `raw_messages` with idempotency by source+message ID.
+- Deterministic normalization runs before extraction.
+- Phase2 extraction job uses OpenAI Responses API with strict validation.
+- Deterministic routing and event upsert create/update canonical event clusters.
+- Digest job publishes event-level summaries.
 
-.venv\Scripts\activate
-```
+## Target-State Pipeline
 
+1. Raw ingest
+2. Structural normalization
+3. AI extraction of literal reported claim
+4. Deterministic post-processing / triage
+5. Event clustering
+6. Entity indexing / dataset construction
+7. Deferred enrichment / external validation
+8. Scheduled reporting
 
+## Interpretation Guardrails
 
-## quickstart-configure
-Create a `.env` file or export environment variables.
+- Raw messages are source-of-record observations.
+- Extraction outputs represent what was reported, not what is verified.
+- `confidence` and `impact_score` are extraction/triage signals, not truth confirmation.
 
-Required for backend startup:
-- `DATABASE_URL`
+## Quick Reading Path
 
-Optional for backend:
-- `API_HOST` (default `0.0.0.0`)
-- `API_PORT` (default `8000`)
-- `VIP_DIGEST_HOURS` (default `4`)
-- `TG_BOT_TOKEN` and `TG_VIP_CHAT_ID` (required only when publishing digest)
-
-Required for Telegram listener process:
-- `TG_API_ID`
-- `TG_API_HASH`
-- `TG_SESSION_NAME`
-- `TG_SOURCE_CHANNEL`
-- `INGEST_API_BASE_URL`
-
-## quickstart-run-backend
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-The backend initializes logging and creates DB tables on app lifespan startup.
-
-## quickstart-run-listener
-```bash
-python -m listener.telegram_listener
-```
-
-This process subscribes to one configured channel and forwards each new message to `POST /ingest/telegram`.
-
-## quickstart-run-digest-job
-```bash
-python -m app.jobs.run_digest
-```
-
-This queries recent events, builds digest text, publishes to Telegram bot API, and stores the published digest hash/record.
-
-## quickstart-test
-```bash
-pytest -q
-```
-
-## Key Commands
-
-| Purpose | Command |
-|---|---|
-| Install dependencies | `pip install -r requirements.txt` |
-| Run API server | `uvicorn app.main:app --host 0.0.0.0 --port 8000` |
-| Run listener | `python -m listener.telegram_listener` |
-| Run digest job | `python -m app.jobs.run_digest` |
-| Run tests | `pytest -q` |
-
-## Repository Map
-
-| Path | Purpose |
-|---|---|
-| `app/` | FastAPI application, schemas, DB setup, SQLAlchemy models, routers, and services. |
-| `app/routers/` | HTTP route handlers (`ingest.py`). |
-| `app/services/` | Ingest pipeline, extraction/routing logic, event upsert, digest generation, Telegram publishing. |
-| `app/jobs/` | CLI-style job entrypoints (`run_digest.py`). |
-| `listener/` | Telegram MTProto listener that posts messages to backend. |
-| `tests/` | End-to-end-ish API and digest behavior tests using `TestClient` and SQLite file DB. |
-| `docs/` | Documentation generated from code inspection (this directory). |
-| `requirements.txt` | Python dependencies. |
-
-## Notes on Source of Truth
-
-This documentation is derived from executable code paths and tests. Existing planning/user-story artifacts were intentionally not used as authoritative behavior definitions.
+1. `ARCHITECTURE.md`
+2. `../02-flows/DATA_FLOW.md`
+3. `../03-interfaces/schemas_and_storage_model.md`
+4. `../04-operations/operations_and_scheduling.md`
+5. `../05-audit/spec_vs_impl_audit.md`

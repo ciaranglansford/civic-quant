@@ -14,8 +14,18 @@ This folder contains narrowly-scoped, implementation-ordered stories for the Pha
 10. `OPS-02` optional admin trigger endpoint
 11. `OPS-03` observability for runs/failures
 12. `BE-10` focused Phase 2 automated tests
+13. `BE-11` wire-bulletin structural normalization
+14. `BE-12` literal reported-claim extraction semantic contract
+15. `BE-13` deterministic entity/source canonicalization
+16. `BE-14` deterministic triage and promotion actioning
+17. `BE-15` repetitive/paraphrase/contradictory bulletin event-cluster refinement
+18. `DB-03` entity indexing dataset layer
+19. `BE-16` deferred enrichment selection hooks
+20. `BE-17` event-level scheduled reporting readiness checks
+21. `OPS-04` stage-based runbook and verification workflow
 
 
 ## Implementation status
 
-Phase 2 stories BE-06 through BE-10 and OPS-01 through OPS-03 are implemented in code and covered by automated tests in `tests/test_e2e_backend.py` and `tests/test_phase2_services.py`.
+Stories in this folder are the canonical implementation backlog for Phase 2 and adjacent execution-readiness work.
+Some earlier stories are already implemented in code; newer stories extend the target-state pipeline from normalization and deterministic triage through indexing, deferred enrichment hooks, and reporting readiness.
