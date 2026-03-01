@@ -50,6 +50,7 @@ This `/docs` directory is organized as a staged, retrieval-friendly knowledge ba
 - [`README.md`](./04-operations/README.md)
 - [`DEPLOYMENT.md`](./04-operations/DEPLOYMENT.md)
 - [`operations_and_scheduling.md`](./04-operations/operations_and_scheduling.md)
+- [`jobs_reference.md`](./04-operations/jobs_reference.md)
 - [`IMPROVEMENTS.md`](./04-operations/IMPROVEMENTS.md)
 
 ### 05-audit
