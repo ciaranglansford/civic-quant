@@ -114,3 +114,14 @@ class EvidenceSource(BaseModel):
     published_time: datetime | None = None
     snippet: str
 
+
+class FeedEventItem(BaseModel):
+    id: int
+    summary: str
+    topic: Topic
+    event_time: str
+
+
+class FeedEventsResponse(BaseModel):
+    items: list[FeedEventItem]
+    next_cursor: str | None
