@@ -13,9 +13,11 @@ from ..models import Extraction, MessageProcessingState, ProcessingLock, RawMess
 from ..schemas import ExtractionJson
 from .canonicalization import canonicalize_extraction
 from .entity_indexing import index_entities_for_extraction
+from .enrichment_selection import select_and_store_enrichment_candidate
 from .event_manager import find_candidate_event, upsert_event
 from .extraction_llm_client import OpenAiExtractionClient, ProviderError
 from .extraction_validation import ExtractionValidationError, parse_and_validate_extraction
+from .impact_scoring import calibrate_impact, distribution_metrics
 from .prompt_templates import render_extraction_prompt
 from .routing_engine import route_extraction
 from .triage_engine import (
@@ -26,7 +28,6 @@ from .triage_engine import (
     entity_signature,
 )
 from .ingest_pipeline import store_routing_decision
-
 
 logger = logging.getLogger("civicquant.phase2")
 OPENAI_EXTRACTOR_NAME = "extract-and-score-openai-v1"
@@ -231,6 +232,7 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
     settings = settings or get_settings()
     run_id = str(uuid.uuid4())
     summary = RunSummary(processing_run_id=run_id)
+    calibrated_scores: list[float] = []
 
     if not _acquire_lock(db, run_id=run_id, lock_seconds=settings.phase2_scheduler_lock_seconds):
         logger.info("phase2_lock_busy processing_run_id=%s", run_id)
@@ -280,9 +282,11 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                 if isinstance(llm_fp_raw, str) and llm_fp_raw.strip():
                     llm_fingerprint_candidate = llm_fp_raw.strip()
 
-                extraction_model, canonicalization_rules, fingerprint_info = canonicalize_extraction(parsed)
-                canonical_payload = extraction_model.model_dump(mode="json")
                 raw_payload = parsed
+                extraction_model_raw, canonicalization_rules, fingerprint_info = canonicalize_extraction(parsed)
+                calibration = calibrate_impact(extraction_model_raw)
+                extraction_model = extraction_model_raw.model_copy(update={"impact_score": calibration.calibrated_score})
+                canonical_payload = extraction_model.model_dump(mode="json")
 
                 extraction = db.query(Extraction).filter_by(raw_message_id=raw.id).one_or_none()
                 if extraction is None:
@@ -323,6 +327,14 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                     "backend_event_fingerprint_authoritative": bool(extraction_model.event_fingerprint),
                     "backend_event_fingerprint_version": fingerprint_info.version,
                     "backend_event_fingerprint_input": fingerprint_info.canonical_input,
+                    "impact_scoring": {
+                        "raw_llm_score": calibration.raw_llm_score,
+                        "calibrated_score": calibration.calibrated_score,
+                        "score_band": calibration.score_band,
+                        "shock_flags": calibration.shock_flags,
+                        "rules_fired": calibration.rules_fired,
+                        "score_breakdown": calibration.score_breakdown,
+                    },
                 }
                 db.flush()
 
@@ -355,6 +367,7 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                 elif triage.triage_action == "update" and existing_event is not None:
                     decision.event_action = "update"
                 store_routing_decision(db, raw.id, decision)
+
                 event_id: int | None = None
                 if decision.event_action != "ignore":
                     event_id, _ = upsert_event(
@@ -363,6 +376,27 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                         raw_message_id=raw.id,
                         latest_extraction_id=extraction.id,
                     )
+
+                if event_id is not None:
+                    try:
+                        select_and_store_enrichment_candidate(
+                            db,
+                            event_id=event_id,
+                            extraction=extraction_model,
+                            calibration=calibration,
+                            triage_action=triage.triage_action,
+                            triage_rules=triage.reason_codes,
+                            existing_event_id=(existing_event.id if existing_event is not None else None),
+                            now=now_time,
+                        )
+                    except Exception as enrichment_exc:  # noqa: BLE001
+                        logger.warning(
+                            "enrichment_selection_failed raw_message_id=%s event_id=%s reason=%s",
+                            raw.id,
+                            event_id,
+                            type(enrichment_exc).__name__,
+                        )
+
                 index_entities_for_extraction(
                     db,
                     raw_message_id=raw.id,
@@ -370,6 +404,7 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                     extraction=extraction_model,
                 )
 
+                calibrated_scores.append(float(calibration.calibrated_score))
                 state.status = "completed"
                 state.completed_at = datetime.utcnow()
                 state.lease_expires_at = None
@@ -408,6 +443,19 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                 summary.processed += 1
                 db.flush()
 
+        if calibrated_scores:
+            metrics = distribution_metrics(calibrated_scores)
+            logger.info(
+                "phase2_score_distribution processing_run_id=%s count=%s p95=%s p99=%s pct_gt_40=%s pct_gt_60=%s pct_gte_80=%s",
+                run_id,
+                int(metrics["count"]),
+                metrics["p95"],
+                metrics["p99"],
+                metrics["pct_gt_40"],
+                metrics["pct_gt_60"],
+                metrics["pct_gte_80"],
+            )
+
         logger.info(
             "phase2_run_done processing_run_id=%s selected=%s processed=%s completed=%s failed=%s skipped=%s",
             run_id,
@@ -420,4 +468,5 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
         return summary
     finally:
         _release_lock(db, run_id)
+
 

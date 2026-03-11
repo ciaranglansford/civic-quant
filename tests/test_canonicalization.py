@@ -193,3 +193,63 @@ def test_insufficient_identity_does_not_emit_hard_fingerprint():
     assert fp.hard_identity_sufficient is False
     assert "event_fingerprint_insufficient_identity" in rules
     assert "event_fingerprint_llm_candidate_ignored" in rules
+
+def test_summary_rewrite_does_not_use_generic_feed_as_attribution_source():
+    payload = {
+        "topic": "war_security",
+        "entities": {
+            "countries": ["United States"],
+            "orgs": ["UK PM Office"],
+            "people": ["Keir Starmer"],
+            "tickers": [],
+        },
+        "affected_countries_first_order": ["United States"],
+        "market_stats": [],
+        "sentiment": "negative",
+        "confidence": 0.9,
+        "impact_score": 80.0,
+        "is_breaking": True,
+        "breaking_window": "15m",
+        "event_time": None,
+        "source_claimed": "Market News Feed",
+        "summary_1_sentence": "UK's PM Starmer has accepted a US request to use British bases for defensive strikes.",
+        "keywords": ["Starmer", "strikes"],
+        "event_core": None,
+        "event_fingerprint": "any",
+    }
+
+    canonical, rules, _ = canonicalize_extraction(payload)
+
+    assert canonical.summary_1_sentence.lower().startswith("reportedly,")
+    assert "market news feed said" not in canonical.summary_1_sentence.lower()
+    assert "summary_high_risk_attribution_rewrite" in rules
+
+
+def test_summary_with_stated_or_warned_is_treated_as_already_attributed():
+    payload = {
+        "topic": "war_security",
+        "entities": {
+            "countries": ["United States"],
+            "orgs": [],
+            "people": ["Trump"],
+            "tickers": [],
+        },
+        "affected_countries_first_order": ["United States"],
+        "market_stats": [],
+        "sentiment": "negative",
+        "confidence": 0.9,
+        "impact_score": 85.0,
+        "is_breaking": True,
+        "breaking_window": "15m",
+        "event_time": None,
+        "source_claimed": "Market News Feed",
+        "summary_1_sentence": "Trump stated that 3 US service members have been killed and warned that there will likely be more.",
+        "keywords": ["Trump", "casualties"],
+        "event_core": None,
+        "event_fingerprint": "any",
+    }
+
+    canonical, rules, _ = canonicalize_extraction(payload)
+
+    assert canonical.summary_1_sentence.startswith("Trump stated")
+    assert "summary_high_risk_attribution_rewrite" not in rules

@@ -3,7 +3,8 @@
 Status legend:
 - `implemented`: present and working in current repo
 - `stabilize`: implemented but needs hardening/clarity
-- `next`: near-term implementation target
+- 
+ext`: near-term implementation target
 - `later`: deferred/future work
 
 ### Semantic Safety Checks (Always-On)
@@ -78,7 +79,7 @@ Run/verify:
 
 ### Stage 7: Deferred Enrichment Hooks
 
-- [later] ENR-01 - Add selective enrichment trigger points for high-value events.
+- [implemented] ENR-01 - Deterministic enrichment candidate selection hooks persist novelty-aware high-value triggers.
 - [later] ENR-02 - Define corroboration/reliability persistence model.
 
 Run/verify:
@@ -119,3 +120,5 @@ Run/verify:
 - Stage 7 deferred enrichment hooks: `BE-16`
 - Stage 8 reporting readiness: `BE-17`
 - Stage 9 runbook support: `OPS-04`
+
+

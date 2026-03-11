@@ -121,8 +121,10 @@ class FeedEventItem(BaseModel):
     summary: str
     topic: Topic
     event_time: str
+    impact_score: int
 
 
 class FeedEventsResponse(BaseModel):
     items: list[FeedEventItem]
     next_cursor: str | None
+

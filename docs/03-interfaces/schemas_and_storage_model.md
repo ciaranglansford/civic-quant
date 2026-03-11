@@ -7,7 +7,8 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
 ## Semantic Contract (Extraction Fields)
 
 - `confidence`: confidence in extraction/classification quality.
-- `impact_score`: significance of the reported claim if taken at face value.
+- Raw `impact_score`: model-reported claim significance signal for traceability.
+- Calibrated impact score: deterministic backend operational severity used for triage/routing/event impact/enrichment.
 - Non-confirmation guarantee: extraction outputs represent reported claims, not verified truth.
 - Stage 1 routing interpretation:
   - confidence/impact are bounded model signals for deterministic routing, not precise urgency truth.
@@ -60,6 +61,8 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
   - may include Stage 1 safety rewrite adjustments to `summary_1_sentence` for high-risk unattributed phrasing.
   - does not overwrite or mutate `payload_json`.
 - `metadata_json`: provider telemetry and processing context (`used_openai`, model, response id, latency, retries, fallback reason, canonicalization rules).
+  - Includes `impact_scoring` metadata: `raw_llm_score`, `calibrated_score`, `score_band`, `shock_flags`, `rules_fired`, `score_breakdown`.
+  - `score_breakdown` is deterministic and reproducible from backend rule logic + structured extraction fields (no ad hoc model inference).
 
 ### Routing / Triage Contract (`routing_decisions`)
 
@@ -74,7 +77,29 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
   - `triage_rules` (list of deterministic rule identifiers)
     - includes score-band rules, related-update/repeat downgrade rules, burst-cap rules, and local incident overrides when fired.
 
-### Raw Capture Contract (`raw_messages`)
+
+### Deferred Enrichment Candidate Contract (`enrichment_candidates`)
+
+- Purpose:
+  - Persist deterministic candidate decisions for downstream enrichment without blocking phase2.
+- Key fields:
+  - `event_id` (unique per event for idempotent candidate state)
+  - `selected` (boolean)
+  - `triage_action`
+  - `reason_codes` (deterministic rule identifiers)
+  - 
+ovelty_state`
+  - 
+ovelty_cluster_key`
+  - `calibrated_score`
+  - `raw_llm_score`
+  - `score_band`
+  - `shock_flags`
+  - `score_breakdown`
+  - `scored_at`, `created_at`
+- Novelty behavior:
+  - Candidate selection prefers deterministic/low-variance duplicate suppression heuristics (event lineage, duplicate markers, cluster key, title/entity overlap) before future semantic similarity refinements.
+### Raw Capture Contract (aw_messages)
 
 - Immutable source-of-record data.
 - Idempotency via unique `(source_channel_id, telegram_message_id)`.
@@ -124,3 +149,5 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
 ### Deferred Validation Status
 
 External corroboration/validation is a later selective stage and is not part of the current ingest API contract.
+
+

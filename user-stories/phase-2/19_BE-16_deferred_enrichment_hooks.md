@@ -1,6 +1,7 @@
 ### Story BE-16 - Add deferred enrichment hooks for selective downstream validation
 
 * **Story ID**: BE-16
+* **Status**: completed (implemented deterministic selector + persistence + novelty filtering)
 * **Title**: Define deferred enrichment trigger hooks without coupling ingest/extraction hot path
 * **As a**: Backend engineer
 * **I want**: Deterministic selection hooks that mark which event clusters are candidates for later enrichment.
@@ -26,3 +27,5 @@
 #### Out-of-scope
 
 * External source crawling or corroboration execution.
+
+

@@ -133,6 +133,7 @@ class Event(Base):
     messages = relationship("EventMessage", back_populates="event")
     latest_extraction = relationship("Extraction", foreign_keys=[latest_extraction_id])
     published_posts = relationship("PublishedPost", back_populates="event")
+    enrichment_candidate = relationship("EnrichmentCandidate", back_populates="event", uselist=False)
 
 
 class EventMessage(Base):
@@ -190,6 +191,31 @@ class PublishedPost(Base):
     content_hash = Column(String(128), nullable=False, index=True)
 
     event = relationship("Event", back_populates="published_posts")
+
+
+class EnrichmentCandidate(Base):
+    __tablename__ = "enrichment_candidates"
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_enrichment_candidate_event"),
+        Index("ix_enrichment_candidates_selected_scored", "selected", "scored_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    selected = Column(Boolean, nullable=False, default=False)
+    triage_action = Column(String(16), nullable=True)
+    reason_codes = Column(JSON, nullable=False, default=list)
+    novelty_state = Column(String(64), nullable=False, default="novel")
+    novelty_cluster_key = Column(String(255), nullable=True, index=True)
+    calibrated_score = Column(Float, nullable=False, default=0.0)
+    raw_llm_score = Column(Float, nullable=True)
+    score_band = Column(String(16), nullable=False, default="low")
+    shock_flags = Column(JSON, nullable=False, default=list)
+    score_breakdown = Column(JSONB_COMPAT, nullable=False, default=dict)
+    scored_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    event = relationship("Event", back_populates="enrichment_candidate")
 
 
 class EntityMention(Base):

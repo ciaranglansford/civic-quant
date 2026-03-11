@@ -37,12 +37,23 @@ _ATTRIBUTION_MARKERS = (
     "according to",
     "said",
     "says",
+    "stated",
+    "warned",
+    "warns",
     "reported",
     "reportedly",
     "claims",
     "claimed",
     "responded to reports",
 )
+_GENERIC_SOURCE_LABELS = {
+    "market news feed",
+    "news feed",
+    "wire",
+    "wire feed",
+    "market wire",
+    "telegram feed",
+}
 
 _COUNTRY_ALIASES: dict[str, str] = {
     "us": "United States",
@@ -150,9 +161,20 @@ def _summary_has_attribution(summary: str) -> bool:
     return any(token in normalized for token in _ATTRIBUTION_MARKERS)
 
 
+def _is_generic_source_label(value: str | None) -> bool:
+    if not value:
+        return False
+    normalized = _normalize_spaces(value).lower()
+    if not normalized:
+        return False
+    if normalized in _GENERIC_SOURCE_LABELS:
+        return True
+    return normalized.endswith("news feed") or normalized.endswith("wire feed")
+
+
 def _best_actor(canonical_payload: dict) -> str | None:
     source = canonical_payload.get("source_claimed")
-    if isinstance(source, str) and source.strip():
+    if isinstance(source, str) and source.strip() and not _is_generic_source_label(source):
         return _normalize_spaces(source)
     entities = canonical_payload.get("entities") or {}
     for key in ("orgs", "people", "countries"):
@@ -164,6 +186,13 @@ def _best_actor(canonical_payload: dict) -> str | None:
     return None
 
 
+def _best_attribution_source(canonical_payload: dict) -> str | None:
+    source = canonical_payload.get("source_claimed")
+    if isinstance(source, str) and source.strip() and not _is_generic_source_label(source):
+        return _normalize_spaces(source)
+    return None
+
+
 def _rewrite_summary_safely(canonical_payload: dict) -> tuple[str, list[str]]:
     summary_raw = str(canonical_payload.get("summary_1_sentence") or "")
     summary = _normalize_spaces(summary_raw)
@@ -172,6 +201,7 @@ def _rewrite_summary_safely(canonical_payload: dict) -> tuple[str, list[str]]:
         return summary_raw, rules
 
     actor = _best_actor(canonical_payload)
+    attribution_source = _best_attribution_source(canonical_payload)
     if _PRONOUN_RE.search(summary):
         if actor:
             summary = _PRONOUN_RE.sub(actor, summary, count=1)
@@ -179,8 +209,8 @@ def _rewrite_summary_safely(canonical_payload: dict) -> tuple[str, list[str]]:
 
     if _summary_has_high_risk_language(summary) and not _summary_has_attribution(summary):
         claim = summary.rstrip(".")
-        if actor:
-            summary = f"{actor} said {claim.lower()}."
+        if attribution_source:
+            summary = f"{attribution_source} said {claim.lower()}."
         else:
             summary = f"Reportedly, {claim.lower()}."
         rules.append("summary_high_risk_attribution_rewrite")
@@ -373,4 +403,8 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
             rules.append("event_fingerprint_llm_candidate_ignored")
 
     return ExtractionJson.model_validate(canonical_payload), rules, fingerprint
+
+
+
+
 

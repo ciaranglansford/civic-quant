@@ -1,6 +1,7 @@
 ### Story OPS-05 - Add calibration regression verification workflow for Stage 1+ quality controls
 
 * **Story ID**: OPS-05
+* **Status**: partial (runbook monitoring checks added; explicit escalation threshold workflow remains)
 * **Title**: Extend local verification runbook with calibration-focused regression checks
 * **As a**: Backend engineer
 * **I want**: A repeatable workflow that validates triage calibration and summary safety behavior on fresh and real-world batches.
@@ -30,3 +31,5 @@
 #### Out-of-scope
 
 * Automated incident response orchestration.
+
+

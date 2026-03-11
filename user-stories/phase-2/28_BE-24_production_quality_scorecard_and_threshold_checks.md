@@ -1,6 +1,7 @@
 ### Story BE-24 - Add production quality scorecard and threshold checks for extraction outputs
 
 * **Story ID**: BE-24
+* **Status**: partial (calibrated score distribution metrics documented; full threshold governance + fixtures remain)
 * **Title**: Define and enforce quality scorecard thresholds for Stage 3-5 stored outputs
 * **As a**: Backend engineer
 * **I want**: A deterministic quality scorecard over recent extraction/routing rows.
@@ -29,3 +30,5 @@
 #### Out-of-scope
 
 * External observability platform rollout.
+
+
