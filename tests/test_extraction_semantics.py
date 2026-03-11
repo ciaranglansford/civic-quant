@@ -12,10 +12,11 @@ def test_prompt_version_uses_v2_and_includes_claim_semantics():
         message_time=datetime.utcnow(),
         source_channel_name="feed",
     )
-    assert rendered.prompt_version == "extraction_agent_v2"
+    assert rendered.prompt_version == "extraction_agent_v3"
     assert "literal reported claim" in rendered.prompt_text.lower()
     assert "not convert reported claims into confirmed facts" in rendered.prompt_text.lower()
     assert "backend computes authoritative fingerprint" in rendered.prompt_text.lower()
+    assert "raw aggregate model signal" in rendered.prompt_text.lower()
 
 
 def test_validation_accepts_uncertain_reported_claim_shape():
@@ -45,3 +46,5 @@ def test_validation_allows_missing_or_null_llm_fingerprint_candidate():
     )
     parsed = parse_and_validate_extraction(raw_json)
     assert parsed["event_fingerprint"] == ""
+
+

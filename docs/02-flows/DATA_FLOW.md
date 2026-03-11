@@ -135,7 +135,9 @@ For operational execution details, see:
 - Why: stabilize AI outputs and reduce noisy actioning.
 - Consumes: extraction payload.
 - Produces: deterministic triage/routing outcomes.
-  - Score bands are used for routing decisions (`confidence`/`impact_score` remain raw persisted model signals).
+  - Raw LLM `impact_score` is preserved for auditability.
+  - Backend-calibrated impact score is authoritative for triage/routing/event impact/enrichment decisions.
+  - Score bands are derived only after deterministic caps/boosts/shock gating rules are applied.
   - Repetitive low-delta follow-ons are downgraded with deterministic burst suppression.
   - Local domestic incident patterns are capped to monitor-or-lower and forced evidence-required.
 
@@ -167,10 +169,13 @@ For operational execution details, see:
 
 - Bulletins are treated as reported claims until validated later.
 - `confidence` is extraction/classification certainty.
-- `impact_score` is significance of the reported claim if taken at face value.
+- Raw `impact_score` is model-reported claim significance signal.
+- Calibrated impact score is deterministic operational severity used downstream.
 
 ## Future Optional Enhancements
 
 - Selective external evidence pipelines and reliability scoring.
 - Additional event-level reporting channels.
 - Expanded normalization/canonicalization rules for wire feed variants.
+
+

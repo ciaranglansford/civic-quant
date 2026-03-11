@@ -106,6 +106,7 @@ def list_feed_events(
             summary=(row.summary_1_sentence or "").strip(),
             topic=row.topic,
             event_time=_format_event_time(row.event_time),
+            impact_score=int(round(float(row.impact_score or 0.0))),
         )
         for row in page_rows
     ]
@@ -116,3 +117,4 @@ def list_feed_events(
         next_cursor = _encode_cursor(event_time=last_row.event_time, event_id=last_row.id)
 
     return FeedEventsResponse(items=items, next_cursor=next_cursor)
+

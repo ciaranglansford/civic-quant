@@ -25,7 +25,7 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 - Use extractor `extract-and-score-openai-v1`.
 - Call OpenAI Responses API.
 - Parse and strictly validate JSON schema.
-- Prompt template version: `extraction_agent_v2` (with `v1` kept unchanged for reproducibility).
+- Prompt template version: `extraction_agent_v3` (with older templates kept for reproducibility).
 
 4. Persistence
 - Write typed extraction fields for retrieval.
@@ -35,6 +35,10 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 
 5. Downstream deterministic processing
 - Canonicalize entities/source values deterministically.
+- Calibrate impact deterministically from canonical fields and rule logic (caps/boosts/band restrictions/shock gating).
+  - Raw LLM `impact_score` remains trace-only in metadata.
+  - Calibrated score is authoritative for triage/routing/event impact/enrichment decisions.
+  - `score_band` is computed only after all caps/boosts/gating rules are applied.
 - Apply deterministic summary semantic safety rewrite in canonical payload only when high-risk claim language lacks attribution.
 - Compute deterministic triage output (`archive|monitor|update|promote`) and routing output.
   - Use score bands (`impact_band`, `confidence_band`) for routing decisions without mutating raw scores.
@@ -44,6 +48,7 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 - Create/update event clusters.
   - Stage 1 keeps exact fingerprint+window association as the only event-linking path.
 - Index entities to `entity_mentions` for retrieval-ready query paths.
+- Run deferred enrichment selection hook with novelty filtering and persist `enrichment_candidates`.
 - Mark processing state `completed` or `failed`.
 
 ## Consumes / Produces
@@ -58,6 +63,7 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 - `extractions` row updates/inserts
 - `routing_decisions` row updates/inserts
 - `events` and `event_messages` updates
+- `enrichment_candidates` updates
 - `entity_mentions` updates
 - `message_processing_states` status transitions
 - phase2 run logs with summary counts
@@ -78,7 +84,8 @@ Reprocess commands:
 - Extraction captures what the bulletin reports.
 - Attribution/uncertainty language should remain represented in extraction output.
 - `confidence` = extraction certainty.
-- `impact_score` = face-value significance of the reported claim.
+- `impact_score` in raw payload = model-reported aggregate signal.
+- Backend-calibrated impact score = operational impact used for triage/routing/event updates/enrichment selection.
 - Neither field is a truth-confirmation score.
 
 ## Failure Policy
@@ -105,9 +112,12 @@ sequenceDiagram
   P->>V: parse_and_validate_extraction(raw_text)
   V-->>P: validated claim payload
   P->>P: canonicalize_extraction(validated payload)
-  P->>P: compute_triage_action(canonical payload)
+  P->>P: calibrate_impact(canonical payload)
+  P->>P: compute_triage_action(calibrated payload)
   P->>DB: upsert extractions (typed fields + payload_json + canonical_payload_json + metadata_json)
-  P->>DB: upsert routing + events + links
+  P->>DB: upsert routing + events + links + enrichment_candidates
   P->>DB: upsert entity_mentions
   P->>DB: update processing state
 ```
+
+

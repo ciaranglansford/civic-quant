@@ -108,10 +108,11 @@ def test_feed_response_shape_and_summary_filtering(client_and_session):
     assert len(payload["items"]) == 1
 
     item = payload["items"][0]
-    assert list(item.keys()) == ["id", "summary", "topic", "event_time"]
+    assert list(item.keys()) == ["id", "summary", "topic", "event_time", "impact_score"]
     assert item["summary"] == "US CPI rose 0.4% m/m in February."
     assert item["topic"] == "macro_econ"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", item["event_time"])
+    assert item["impact_score"] == 50
 
 
 def test_feed_pagination_cursor_is_deterministic_and_no_overlap(client_and_session):
@@ -203,3 +204,4 @@ def test_feed_invalid_cursor_returns_400(client_and_session):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "invalid cursor"
+

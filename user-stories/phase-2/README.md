@@ -31,9 +31,14 @@ This folder contains narrowly-scoped, implementation-ordered stories for the Pha
 27. `BE-23` pronoun rewrite safety and grammar guardrails
 28. `BE-24` production quality scorecard and threshold checks
 29. `OPS-05` calibration regression verification workflow
+30. `BE-25` external market corroboration for scoring refinement (future)
+31. `DB-04` historical calibrated-score backfill workflow (future)
+32. `BE-26` semantic novelty similarity refinement (future)
 
 
 ## Implementation status
 
 Stories in this folder are the canonical implementation backlog for Phase 2 and adjacent execution-readiness work.
 Some earlier stories are already implemented in code; newer stories extend the target-state pipeline from normalization and deterministic triage through indexing, deferred enrichment hooks, and reporting readiness.
+
+

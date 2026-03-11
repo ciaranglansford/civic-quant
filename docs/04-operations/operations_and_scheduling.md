@@ -40,7 +40,7 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
 - Expected outputs:
   - extractor selection log
   - processing summary log
-  - updates in `extractions`, `routing_decisions`, `events`, `event_messages`
+  - updates in `extractions`, `routing_decisions`, `events`, `event_messages`, `enrichment_candidates`
 
 5. Run digest/report (Stage 8)
 - Command:
@@ -103,13 +103,35 @@ Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full re
 ### Key logs
 - `phase2_config phase2_extraction_enabled=<bool> openai_api_key_present=<bool> openai_model=<value>`
 - `Using extractor: extract-and-score-openai-v1`
-- `phase2_run_done ... selected=<n> processed=<n> completed=<n> failed=<n> skipped=<n>`
+- `phase2_run_done ... selected=<n> processed=<n> completed=<n> failed=<n> skipped=<n>` 
+- `phase2_score_distribution ... count=<n> p95=<v> p99=<v> pct_gt_40=<v> pct_gt_60=<v> pct_gte_80=<v>`
 
 ### Key DB side effects
 - `extractions`: typed extraction fields + `payload_json` + `metadata_json`
 - `routing_decisions`: deterministic triage output
+- `enrichment_candidates`: deterministic candidate decisions + novelty state
 - `events`/`event_messages`: event cluster updates
 
+
+## Calibrated Score Monitoring
+
+Run after phase2 batches to detect prompt drift or calibration regressions.
+
+### Required metrics
+- p95 calibrated score
+- p99 calibrated score
+- percentage of events with calibrated score > 40
+- percentage of events with calibrated score > 60
+- percentage of events with calibrated score >= 80
+
+### Example SQL checks
+- `SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY impact_score) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY impact_score) AS p99 FROM extractions WHERE impact_score IS NOT NULL;`
+- `SELECT 100.0 * AVG(CASE WHEN impact_score > 40 THEN 1 ELSE 0 END) AS pct_gt_40, 100.0 * AVG(CASE WHEN impact_score > 60 THEN 1 ELSE 0 END) AS pct_gt_60, 100.0 * AVG(CASE WHEN impact_score >= 80 THEN 1 ELSE 0 END) AS pct_gte_80 FROM extractions WHERE impact_score IS NOT NULL;`
+
+### Debugging workflow
+- Inspect `extractions.metadata_json->impact_scoring` for `rules_fired` and `score_breakdown`.
+- Verify high scores have shock flags + transmission criteria met.
+- Verify local/non-market incidents remain capped by deterministic rules.
 ## Troubleshooting: Repetitive or Contradictory Bulletins
 
 - Repetition is expected in wire feeds; validate event clustering behavior, not one-message-one-event assumptions.
@@ -121,3 +143,5 @@ Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full re
 1. Confirm extraction job logs show `extract-and-score-openai-v1`.
 2. Confirm phase2 env values (`PHASE2_EXTRACTION_ENABLED`, API key presence).
 3. Inspect latest `extractions` rows for `extractor_name`, `payload_json`, and `metadata_json`.
+
+

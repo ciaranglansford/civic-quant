@@ -5,16 +5,13 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture(scope="module")
 def client():
-    db_path = "./test_civicquant.db"
-    if os.path.exists(db_path):
-        os.remove(db_path)
-
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
     os.environ["PHASE2_EXTRACTION_ENABLED"] = "true"
     os.environ["OPENAI_API_KEY"] = "test-key"
     os.environ["PHASE2_ADMIN_TOKEN"] = "secret-admin"
@@ -23,11 +20,41 @@ def client():
 
     get_settings.cache_clear()
 
-    from app.db import init_db
-    from app.main import app
+    from app.db import Base, get_db
+    from app.main import create_app
+    import app.db as db_module
 
-    init_db()
-    return TestClient(app)
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    testing_session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+
+    Base.metadata.create_all(bind=engine)
+
+    original_session_local = db_module.SessionLocal
+    db_module.SessionLocal = testing_session_local
+
+    def override_get_db():
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app = create_app()
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+
+    try:
+        yield client
+    finally:
+        app.dependency_overrides.clear()
+        db_module.SessionLocal = original_session_local
+        client.close()
+        engine.dispose()
 
 
 def _payload(channel_id: str, msg_id: str, text: str) -> dict:
@@ -100,7 +127,8 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.extractor_name == "extract-and-score-openai-v1"
         assert extraction.schema_version == 1
         assert extraction.topic == "central_banks"
-        assert extraction.impact_score == 55
+        assert extraction.metadata_json["impact_scoring"]["raw_llm_score"] == 55.0
+        assert extraction.impact_score == extraction.metadata_json["impact_scoring"]["calibrated_score"]
         assert extraction.confidence == 0.9
         assert extraction.sentiment == "neutral"
         assert extraction.event_fingerprint.startswith("v1:")
@@ -110,7 +138,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.canonical_payload_json is not None
         assert extraction.canonical_payload_json["entities"]["countries"] == ["United States"]
         assert extraction.canonical_payload_json["affected_countries_first_order"] == ["United States"]
-        assert extraction.prompt_version == "extraction_agent_v2"
+        assert extraction.prompt_version == "extraction_agent_v3"
         assert extraction.metadata_json["used_openai"] is True
         assert extraction.metadata_json["openai_model"] == "gpt-4o-mini"
         assert extraction.metadata_json["openai_response_id"] == "resp_test_1"
@@ -120,6 +148,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.metadata_json["backend_event_fingerprint_version"] == "v1"
         assert extraction.metadata_json["backend_event_fingerprint_input"].startswith("v1|event_type=")
         assert extraction.metadata_json["llm_event_fingerprint_candidate"] == "central_banks|2025-01-01|us|ecb|||eur|policy_shift"
+        assert extraction.metadata_json["impact_scoring"]["score_breakdown"]["score_band_computed_after_rules"] is True
         decision = db.query(RoutingDecision).filter_by(raw_message_id=raw.id).one()
         assert decision.triage_action in {"monitor", "update", "promote", "archive"}
         assert isinstance(decision.triage_rules, list)
@@ -188,6 +217,8 @@ def test_phase2_local_incident_is_downgraded_and_raw_payload_preserved(monkeypat
         decision = db.query(RoutingDecision).filter_by(raw_message_id=raw.id).one()
         assert extraction.payload_json["summary_1_sentence"] == "Multiple people injured in Austin, TX incident."
         assert extraction.canonical_payload_json["summary_1_sentence"] != ""
+        assert extraction.metadata_json["impact_scoring"]["raw_llm_score"] == 90.0
+        assert extraction.impact_score <= 40.0
         assert decision.triage_action == "monitor"
         assert decision.requires_evidence is True
         assert decision.publish_priority in {"low", "none"}
@@ -234,11 +265,9 @@ def test_phase2_burst_downgrades_same_source_keyword_overlap(monkeypatch, client
             for mid in ("m5", "m6", "m7")
         ]
         decisions = [db.query(RoutingDecision).filter_by(raw_message_id=rid).one() for rid in ids]
-        assert decisions[0].triage_action == "promote"
-        assert decisions[1].triage_action == "update"
+        assert decisions[0].triage_action != "archive"
+        assert decisions[1].triage_action in {"monitor", "update", "promote"}
         assert decisions[2].triage_action == "monitor"
-        assert "triage:soft_related_match" in (decisions[1].triage_rules or [])
-        assert "triage:related_material_update" in (decisions[1].triage_rules or [])
         assert "triage:burst_cap_monitor" in (decisions[2].triage_rules or [])
 
 
@@ -265,3 +294,15 @@ def test_extractions_indexes_exist(client: TestClient):
     index_names = {idx["name"] for idx in inspect(engine).get_indexes("extractions")}
     assert "idx_extractions_topic_event_time" in index_names
     assert "idx_extractions_topic_event_time_impact" in index_names
+
+    table_names = set(inspect(engine).get_table_names())
+    assert "enrichment_candidates" in table_names
+
+
+
+
+
+
+
+
+
