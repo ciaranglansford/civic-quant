@@ -103,7 +103,8 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.impact_score == 55
         assert extraction.confidence == 0.9
         assert extraction.sentiment == "neutral"
-        assert extraction.event_fingerprint == "central_banks|2025-01-01|United States|ecb|||eur|policy_shift"
+        assert extraction.event_fingerprint.startswith("v1:")
+        assert len(extraction.event_fingerprint) == 67
         assert extraction.payload_json["topic"] == "central_banks"
         assert extraction.payload_json["entities"]["countries"] == ["U.S."]
         assert extraction.canonical_payload_json is not None
@@ -115,6 +116,10 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.metadata_json["openai_response_id"] == "resp_test_1"
         assert extraction.metadata_json["latency_ms"] == 42
         assert extraction.metadata_json["canonicalization_rules"]
+        assert extraction.metadata_json["backend_event_fingerprint"] == extraction.event_fingerprint
+        assert extraction.metadata_json["backend_event_fingerprint_version"] == "v1"
+        assert extraction.metadata_json["backend_event_fingerprint_input"].startswith("v1|event_type=")
+        assert extraction.metadata_json["llm_event_fingerprint_candidate"] == "central_banks|2025-01-01|us|ecb|||eur|policy_shift"
         decision = db.query(RoutingDecision).filter_by(raw_message_id=raw.id).one()
         assert decision.triage_action in {"monitor", "update", "promote", "archive"}
         assert isinstance(decision.triage_rules, list)
@@ -232,8 +237,8 @@ def test_phase2_burst_downgrades_same_source_keyword_overlap(monkeypatch, client
         assert decisions[0].triage_action == "promote"
         assert decisions[1].triage_action == "update"
         assert decisions[2].triage_action == "monitor"
-        assert "triage:soft_related_downgrade" in (decisions[1].triage_rules or [])
-        assert "triage:burst_cap_update" in (decisions[1].triage_rules or [])
+        assert "triage:soft_related_match" in (decisions[1].triage_rules or [])
+        assert "triage:related_material_update" in (decisions[1].triage_rules or [])
         assert "triage:burst_cap_monitor" in (decisions[2].triage_rules or [])
 
 

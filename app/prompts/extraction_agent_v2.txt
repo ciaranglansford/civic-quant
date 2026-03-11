@@ -31,14 +31,17 @@ Schema (all keys required, no extra keys):
   "source_claimed": "string|null",
   "summary_1_sentence": "string",
   "keywords": ["string"],
-  "event_fingerprint": "string"
+  "event_core": "string|null",
+  "event_fingerprint": "string|null"
 }
 
 Constraints:
 - No additional keys anywhere.
 - confidence must be between 0 and 1.
 - impact_score must be between 0 and 100.
-- event_fingerprint must be deterministic for equivalent facts.
+- Prefer null for unknown fields; do not fabricate placeholders.
+- Keep values machine-friendly and stable (no decorative phrasing).
+- event_fingerprint is a non-authoritative candidate only; backend computes authoritative fingerprint.
 
 Input values:
 - normalized_text: {{normalized_text}}

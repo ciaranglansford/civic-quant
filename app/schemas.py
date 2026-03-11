@@ -68,7 +68,8 @@ class ExtractionJson(BaseModel):
     source_claimed: str | None = None
     summary_1_sentence: str
     keywords: list[str] = Field(default_factory=list)
-    event_fingerprint: str
+    event_core: str | None = None
+    event_fingerprint: str = ""
 
     @field_validator("confidence")
     @classmethod

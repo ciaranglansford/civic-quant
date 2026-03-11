@@ -105,12 +105,12 @@ def _entities_from_payload(payload: dict) -> set[str]:
     if not isinstance(entities, dict):
         entities = {}
     out: set[str] = set()
-    for key in ("countries", "orgs", "people"):
+    for key, prefix in (("countries", "country"), ("orgs", "org"), ("people", "person")):
         values = entities.get(key, [])
         if isinstance(values, list):
             for value in values:
                 if isinstance(value, str) and value.strip():
-                    out.add(f"{key[:-1]}:{value.strip().lower()}")
+                    out.add(f"{prefix}:{value.strip().lower()}")
     return out
 
 
@@ -275,8 +275,12 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                 )
                 llm_response = client.extract(prompt.prompt_text)
                 parsed = parse_and_validate_extraction(llm_response.raw_text)
-                canonicalized_model, canonicalization_rules = canonicalize_extraction(parsed)
-                extraction_model = ExtractionJson.model_validate(canonicalized_model.model_dump(mode="json"))
+                llm_fingerprint_candidate = None
+                llm_fp_raw = parsed.get("event_fingerprint") if isinstance(parsed, dict) else None
+                if isinstance(llm_fp_raw, str) and llm_fp_raw.strip():
+                    llm_fingerprint_candidate = llm_fp_raw.strip()
+
+                extraction_model, canonicalization_rules, fingerprint_info = canonicalize_extraction(parsed)
                 canonical_payload = extraction_model.model_dump(mode="json")
                 raw_payload = parsed
 
@@ -314,6 +318,11 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
                     "retries": llm_response.retries,
                     "fallback_reason": None,
                     "canonicalization_rules": canonicalization_rules,
+                    "llm_event_fingerprint_candidate": llm_fingerprint_candidate,
+                    "backend_event_fingerprint": extraction_model.event_fingerprint or None,
+                    "backend_event_fingerprint_authoritative": bool(extraction_model.event_fingerprint),
+                    "backend_event_fingerprint_version": fingerprint_info.version,
+                    "backend_event_fingerprint_input": fingerprint_info.canonical_input,
                 }
                 db.flush()
 
@@ -411,3 +420,4 @@ def process_phase2_batch(db: Session, settings: Settings | None = None) -> RunSu
         return summary
     finally:
         _release_lock(db, run_id)
+
