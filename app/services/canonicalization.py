@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from ..schemas import ExtractionJson
 
@@ -54,9 +56,27 @@ _COUNTRY_ALIASES: dict[str, str] = {
     "eu": "European Union",
 }
 
+FINGERPRINT_VERSION = "v1"
+_MISSING_TOKEN = "~"
+
+
+@dataclass(frozen=True)
+class FingerprintComputation:
+    version: str
+    canonical_input: str
+    fingerprint: str | None
+    hard_identity_sufficient: bool
+
 
 def _normalize_spaces(value: str) -> str:
     return _WS_RE.sub(" ", value.strip())
+
+
+def _safe_token(value: str) -> str:
+    cleaned = _normalize_spaces(value).lower()
+    if not cleaned:
+        return _MISSING_TOKEN
+    return cleaned.replace("|", "/").replace("=", "-")
 
 
 def _canonical_country(value: str) -> str:
@@ -120,14 +140,6 @@ def _canonical_source(value: str | None) -> str | None:
     return cleaned or None
 
 
-def _canonicalize_fingerprint_country_component(fingerprint: str, countries: list[str]) -> str:
-    parts = fingerprint.split("|")
-    if len(parts) < 8:
-        return fingerprint
-    parts[2] = ",".join(countries)
-    return "|".join(parts)
-
-
 def _summary_has_high_risk_language(summary: str) -> bool:
     normalized = _normalize_spaces(summary).lower()
     return any(token in normalized for token in _HIGH_RISK_TERMS)
@@ -176,13 +188,122 @@ def _rewrite_summary_safely(canonical_payload: dict) -> tuple[str, list[str]]:
     return summary, rules
 
 
-def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str]]:
+def _tokenize(values: Iterable[str], *, upper: bool = False, limit: int | None = None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        cleaned = _normalize_spaces(raw)
+        if not cleaned:
+            continue
+        token = cleaned.upper() if upper else cleaned.lower()
+        token = token.replace("|", "/").replace("=", "-")
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    out = sorted(out)
+    if limit is not None:
+        return out[:limit]
+    return out
+
+
+def _join_or_missing(values: list[str]) -> str:
+    if not values:
+        return _MISSING_TOKEN
+    return ",".join(values)
+
+
+def _select_actor(extraction: ExtractionJson) -> str:
+    if extraction.source_claimed and extraction.source_claimed.strip():
+        return _safe_token(extraction.source_claimed)
+
+    entities = extraction.entities
+    orgs = _tokenize(entities.orgs)
+    if orgs:
+        return orgs[0]
+    people = _tokenize(entities.people)
+    if people:
+        return people[0]
+    countries = _tokenize(entities.countries)
+    if countries:
+        return countries[0]
+    return _MISSING_TOKEN
+
+
+def _select_target(extraction: ExtractionJson, actor: str) -> str:
+    candidates = _tokenize(extraction.entities.orgs) + _tokenize(extraction.entities.people) + _tokenize(extraction.entities.countries)
+    for candidate in candidates:
+        if candidate != actor:
+            return candidate
+    return _MISSING_TOKEN
+
+
+def compute_authoritative_fingerprint(extraction: ExtractionJson) -> FingerprintComputation:
+    actor = _select_actor(extraction)
+    target = _select_target(extraction, actor)
+
+    keyword_tokens = _tokenize(extraction.keywords, limit=3)
+    action = keyword_tokens[0] if keyword_tokens else _MISSING_TOKEN
+    subject = _join_or_missing(keyword_tokens)
+
+    location_values = extraction.affected_countries_first_order or extraction.entities.countries
+    location = _join_or_missing(_tokenize(location_values))
+    country = _join_or_missing(_tokenize(extraction.entities.countries))
+
+    date = _MISSING_TOKEN
+    precision = "unknown"
+    if extraction.event_time is not None:
+        date = extraction.event_time.date().isoformat()
+        precision = "day"
+
+    orgs = _join_or_missing(_tokenize(extraction.entities.orgs))
+    people = _join_or_missing(_tokenize(extraction.entities.people))
+    tickers = _join_or_missing(_tokenize(extraction.entities.tickers, upper=True))
+
+    canonical_input = (
+        f"{FINGERPRINT_VERSION}"
+        f"|event_type={_safe_token(extraction.topic)}"
+        f"|actor={actor}"
+        f"|target={target}"
+        f"|action={action}"
+        f"|subject={subject}"
+        f"|location={location}"
+        f"|country={country}"
+        f"|date={date}"
+        f"|precision={precision}"
+        f"|orgs={orgs}"
+        f"|people={people}"
+        f"|tickers={tickers}"
+    )
+    has_entity_anchor = any(
+        value != _MISSING_TOKEN
+        for value in (actor, target, location, country, orgs, people, tickers)
+    )
+    has_semantic_anchor = action != _MISSING_TOKEN or subject != _MISSING_TOKEN
+    has_time_anchor = date != _MISSING_TOKEN
+    hard_identity_sufficient = has_entity_anchor and (has_semantic_anchor or has_time_anchor)
+
+    fingerprint: str | None = None
+    if hard_identity_sufficient:
+        fingerprint_hash = hashlib.sha256(canonical_input.encode("utf-8")).hexdigest()
+        fingerprint = f"{FINGERPRINT_VERSION}:{fingerprint_hash}"
+    return FingerprintComputation(
+        version=FINGERPRINT_VERSION,
+        canonical_input=canonical_input,
+        fingerprint=fingerprint,
+        hard_identity_sufficient=hard_identity_sufficient,
+    )
+
+
+def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], FingerprintComputation]:
     """
     Deterministically canonicalize validated extraction payload values for downstream logic.
-    Returns a validated ExtractionJson and fired canonicalization rule identifiers.
+    Returns a validated ExtractionJson, fired canonicalization rule identifiers, and authoritative fingerprint computation metadata.
     """
     canonical_payload = copy.deepcopy(payload)
     rules: list[str] = []
+
+    llm_fingerprint_candidate = canonical_payload.get("event_fingerprint")
 
     entities = canonical_payload.setdefault("entities", {})
 
@@ -216,15 +337,40 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str]]:
         rules.append("source_text_normalization")
     canonical_payload["source_claimed"] = source_claimed
 
+    keywords = _canonical_text_list(canonical_payload.get("keywords", []))
+    if keywords != canonical_payload.get("keywords", []):
+        rules.append("keyword_text_normalization")
+    canonical_payload["keywords"] = keywords
+
+    event_core_raw = canonical_payload.get("event_core")
+    if isinstance(event_core_raw, str):
+        event_core = _normalize_spaces(event_core_raw) or None
+    else:
+        event_core = None
+    if event_core != event_core_raw:
+        rules.append("event_core_text_normalization")
+    canonical_payload["event_core"] = event_core
+
     summary, summary_rules = _rewrite_summary_safely(canonical_payload)
     if summary != canonical_payload.get("summary_1_sentence"):
         rules.extend(summary_rules)
     canonical_payload["summary_1_sentence"] = summary
 
-    fingerprint = str(canonical_payload.get("event_fingerprint") or "")
-    canonical_fingerprint = _canonicalize_fingerprint_country_component(fingerprint, canonical_countries)
-    if canonical_fingerprint != fingerprint:
-        rules.append("event_fingerprint_country_normalization")
-    canonical_payload["event_fingerprint"] = canonical_fingerprint
+    canonical_model = ExtractionJson.model_validate(canonical_payload)
+    fingerprint = compute_authoritative_fingerprint(canonical_model)
+    canonical_payload["event_fingerprint"] = fingerprint.fingerprint or ""
 
-    return ExtractionJson.model_validate(canonical_payload), rules
+    candidate_clean = llm_fingerprint_candidate.strip() if isinstance(llm_fingerprint_candidate, str) else ""
+    if fingerprint.fingerprint:
+        if candidate_clean:
+            if candidate_clean != fingerprint.fingerprint:
+                rules.append("event_fingerprint_backend_override")
+        else:
+            rules.append("event_fingerprint_backend_generated")
+    else:
+        rules.append("event_fingerprint_insufficient_identity")
+        if candidate_clean:
+            rules.append("event_fingerprint_llm_candidate_ignored")
+
+    return ExtractionJson.model_validate(canonical_payload), rules, fingerprint
+

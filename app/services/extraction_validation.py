@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from ..schemas import ExtractionEntities, MarketStat
 
@@ -23,7 +23,17 @@ class StrictExtractionJson(BaseModel):
     source_claimed: str | None
     summary_1_sentence: str
     keywords: list[str]
-    event_fingerprint: str
+    event_core: str | None = None
+    event_fingerprint: str | None = None
+
+    @field_validator("event_fingerprint", mode="before")
+    @classmethod
+    def _coerce_event_fingerprint(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return None
 
 
 class ExtractionValidationError(ValueError):
@@ -44,10 +54,17 @@ def parse_and_validate_extraction(raw_text: str) -> dict:
     except ValidationError as e:
         raise ExtractionValidationError(f"schema_error: {e.errors()[0]['msg']}") from e
 
+    extraction_payload = strict_obj.model_dump(mode="json")
+    llm_fingerprint_candidate = extraction_payload.get("event_fingerprint")
+    if isinstance(llm_fingerprint_candidate, str):
+        extraction_payload["event_fingerprint"] = llm_fingerprint_candidate.strip()
+    else:
+        extraction_payload["event_fingerprint"] = ""
+
     from ..schemas import ExtractionJson
 
     try:
-        model = ExtractionJson.model_validate(strict_obj.model_dump())
+        model = ExtractionJson.model_validate(extraction_payload)
     except ValidationError as e:
         raise ExtractionValidationError(f"schema_error: {e.errors()[0]['msg']}") from e
     return model.model_dump(mode="json")

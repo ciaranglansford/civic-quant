@@ -55,7 +55,7 @@ The refined target-state flow is:
 - `app/routers/`: HTTP interfaces (`ingest`, `admin`).
 - `app/services/`: normalization, extraction processing, routing, event management, digest logic.
 - `app/models.py`: storage contract for raw messages, processing state, extractions, events, routing decisions, published posts.
-- `app/jobs/`: operational jobs (phase2 extraction, digest, reset/test helpers).
+- `app/jobs/`: operational jobs (phase2 extraction, digest, reset/test helpers). See `app/jobs/README.md` for run commands and job descriptions.
 - `listener/`: Telegram ingestion worker.
 - `docs/`: architecture, flow, interfaces, operations, audit references.
 
@@ -177,3 +177,4 @@ Use this when schema/layout drift makes partial reprocessing insufficient.
 ## Notes
 
 This repository contains both implemented behavior and forward-looking architecture intent in docs. Each major doc distinguishes current state vs target state vs future optional enhancements.
+

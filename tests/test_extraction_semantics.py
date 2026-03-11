@@ -15,6 +15,7 @@ def test_prompt_version_uses_v2_and_includes_claim_semantics():
     assert rendered.prompt_version == "extraction_agent_v2"
     assert "literal reported claim" in rendered.prompt_text.lower()
     assert "not convert reported claims into confirmed facts" in rendered.prompt_text.lower()
+    assert "backend computes authoritative fingerprint" in rendered.prompt_text.lower()
 
 
 def test_validation_accepts_uncertain_reported_claim_shape():
@@ -24,9 +25,23 @@ def test_validation_accepts_uncertain_reported_claim_shape():
         '"market_stats":[],"sentiment":"unknown","confidence":0.61,"impact_score":66,'
         '"is_breaking":true,"breaking_window":"1h","event_time":null,"source_claimed":"AP",'
         '"summary_1_sentence":"AP reports officials made an unconfirmed claim.",'
-        '"keywords":["unconfirmed","reported"],"event_fingerprint":"f"}'
+        '"keywords":["unconfirmed","reported"],"event_core":"officials made a claim",'
+        '"event_fingerprint":"f"}'
     )
     parsed = parse_and_validate_extraction(raw_json)
     assert parsed["confidence"] == 0.61
     assert parsed["impact_score"] == 66.0
     assert "unconfirmed claim" in parsed["summary_1_sentence"].lower()
+    assert parsed["event_core"] == "officials made a claim"
+
+
+def test_validation_allows_missing_or_null_llm_fingerprint_candidate():
+    raw_json = (
+        '{"topic":"macro_econ","entities":{"countries":["United States"],"orgs":[],"people":[],"tickers":[]},'
+        '"affected_countries_first_order":[],"market_stats":[],"sentiment":"neutral","confidence":0.7,'
+        '"impact_score":50,"is_breaking":false,"breaking_window":"none","event_time":null,'
+        '"source_claimed":null,"summary_1_sentence":"Officials report inflation update.",'
+        '"keywords":["inflation"],"event_core":null,"event_fingerprint":null}'
+    )
+    parsed = parse_and_validate_extraction(raw_json)
+    assert parsed["event_fingerprint"] == ""
