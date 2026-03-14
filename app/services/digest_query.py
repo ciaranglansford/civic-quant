@@ -1,21 +1,17 @@
-from __future__ import annotations
+"""
+Transitional compatibility shim for legacy service imports.
 
-from datetime import datetime, timedelta
+Authoritative digest query implementation lives in `app.digest.query`.
+Do not add business logic here; keep this module as a thin delegator only.
+"""
+
+from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ..models import Event
+from ..digest.query import get_events_for_digest_hours
 
 
-def get_events_for_digest(db: Session, hours: int) -> list[Event]:
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
-    return (
-        db.query(Event)
-        .filter(
-            (Event.last_updated_at >= cutoff)
-            | ((Event.event_time.isnot(None)) & (Event.event_time >= cutoff))
-        )
-        .order_by(Event.last_updated_at.desc())
-        .all()
-    )
+def get_events_for_digest(db: Session, hours: int):
+    return get_events_for_digest_hours(db, hours=hours)
 

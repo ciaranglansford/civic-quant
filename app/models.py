@@ -178,19 +178,44 @@ class RoutingDecision(Base):
     raw_message = relationship("RawMessage", back_populates="routing_decision")
 
 
+class DigestArtifact(Base):
+    __tablename__ = "digest_artifacts"
+
+    id = Column(Integer, primary_key=True)
+    window_start_utc = Column(DateTime, nullable=False, index=True)
+    window_end_utc = Column(DateTime, nullable=False, index=True)
+    canonical_text = Column(Text, nullable=False)
+    canonical_hash = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    published_posts = relationship("PublishedPost", back_populates="artifact")
+
+
 class PublishedPost(Base):
     __tablename__ = "published_posts"
+    __table_args__ = (
+        UniqueConstraint("artifact_id", "destination", name="uq_published_posts_artifact_destination"),
+        Index("ix_published_posts_destination_status", "destination", "status"),
+    )
 
     id = Column(Integer, primary_key=True)
     event_id = Column(
         Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
     )
+    artifact_id = Column(
+        Integer, ForeignKey("digest_artifacts.id", ondelete="CASCADE"), nullable=False
+    )
     destination = Column(String(64), nullable=False)  # e.g. vip_telegram
-    published_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    status = Column(String(32), nullable=False, default="published")
+    last_attempted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    published_at = Column(DateTime, nullable=True, index=True)
     content = Column(Text, nullable=False)
     content_hash = Column(String(128), nullable=False, index=True)
+    last_error = Column(Text, nullable=True)
+    external_ref = Column(String(255), nullable=True)
 
     event = relationship("Event", back_populates="published_posts")
+    artifact = relationship("DigestArtifact", back_populates="published_posts")
 
 
 class EnrichmentCandidate(Base):
