@@ -16,6 +16,7 @@ logger = logging.getLogger("civicquant.reset")
 TABLES_TO_CLEAR_IN_ORDER = [
     "event_messages",
     "published_posts",
+    "digest_artifacts",
     "events",
     "routing_decisions",
     "extractions",

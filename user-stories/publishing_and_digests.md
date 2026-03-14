@@ -1,125 +1,136 @@
-## Publishing and 4-Hour VIP Digests
+## Canonical Digest Pipeline and Publishing
 
 ### Purpose
 
-Define strict behavior for generating and publishing 4-hour digests to the VIP Telegram chat, enforcing the no-interpretation rule.
+Define strict behavior for canonical digest generation and destination publishing.
 
-### Story PUB-01 – Query Events for Digest Window
+Invariant:
+**No publish attempt occurs unless a canonical artifact has already been persisted.**
+
+The digest remains no-interpretation and informational only.
+
+### Implementation Ownership and Local Adoption Notes
+
+- Authoritative digest implementation lives in `app/digest/`.
+- Digest job entrypoint remains `app/jobs/run_digest.py`.
+- Legacy `app/services/digest_query.py`, `app/services/digest_builder.py`, `app/services/digest_runner.py`, and `app/services/telegram_publisher.py` are compatibility shims only.
+- The repo has no migration framework; `create_all` does not alter existing tables.
+- Local/dev schema adoption step for this refactor:
+  - `python -m app.jobs.reset_dev_schema`
+
+### Story PUB-01 - Deterministic Event Selection
 
 - **Story ID**: PUB-01
-- **Title**: Fetch events for the last N hours
+- **Title**: Select events for the frozen digest window
 - **As a**: Backend engineer
-- **I want**: A query that returns all relevant events in a configurable time window.
-- **So that**: The digest generator can build summaries for the VIP chat.
-
-#### Preconditions
-
-- `events` table exists and is populated.
-- Configuration value `VIP_DIGEST_HOURS` is available.
+- **I want**: Deterministic event inclusion for digest generation.
+- **So that**: Digest content is stable, auditable, and rerunnable.
 
 #### Acceptance Criteria
 
-- A function exists, for example:
-  - `get_events_for_digest(hours) -> list[events]`.
-- The function:
-  - Selects events whose `event_time` or `last_updated_at` falls within the last `hours` relative to execution time.
-  - Allows `hours` to default to `VIP_DIGEST_HOURS`.
-  - Returns events along with their topics and latest summaries.
-- The query is index-supported and efficient for at least a 7-day history.
+- Window bounds are frozen at run start in UTC.
+- Event inclusion rule is exact:
+  - Include event iff `last_updated_at` is in `[window_start_utc, window_end_utc)`.
+- Event ordering is deterministic:
+  - `last_updated_at` descending, then `event_id` ascending.
+- Re-entry behavior is explicit:
+  - An event may appear again in later digests if `last_updated_at` changes into that later window.
 
-#### Out-of-scope
-
-- Filtering by audience-specific preferences.
-
-### Story PUB-02 – Generate Category-Grouped Digest Text
+### Story PUB-02 - Build Canonical Digest Model
 
 - **Story ID**: PUB-02
-- **Title**: Generate digest text grouped by topic
-- **As a**: VIP user
-- **I want**: A digest with grouped headlines and key facts but no trading advice.
-- **So that**: I can quickly scan what matters in the last few hours.
-
-#### Preconditions
-
-- A list of events for the digest window is available.
+- **Title**: Build canonical digest structure from selected events
+- **As a**: Backend engineer
+- **I want**: A structured canonical digest model as the source of digest semantics.
+- **So that**: Rendering and destination publishing remain decoupled from core logic.
 
 #### Acceptance Criteria
 
-- A digest generation function exists, for example:
-  - `build_digest(events) -> string`.
-- Behavior:
-  - Groups events by topic.
-  - For each topic section:
-    - Renders a heading (e.g., `Macro / Central Banks`).
-    - Lists each event as a bullet with:
-      - 1-sentence summary from `summary_1_sentence`.
-      - Key numbers and entities extracted from the event or its messages where available.
-      - A corroboration label (Phase 1: `corroboration: unknown` or derived from simple rules).
-  - Adds a header indicating time window and counts per topic.
-  - Adds a footer disclaimer explicitly stating that the digest is not investment advice.
-- Generated text does not:
-  - Recommend trades or positions.
-  - Use language like “buy”, “sell”, “enter”, “exit”, or similar prescriptive phrasing.
+- Canonical builder returns structured digest sections/items.
+- Topic ordering is alphabetical by normalized topic label.
+- Item ordering inside each topic is:
+  - `last_updated_at` descending, then `event_id` ascending.
+- Canonical model does not contain destination-specific constraints.
 
-#### Out-of-scope
-
-- Long-form narrative writeups (Phase 2+).
-
-### Story PUB-03 – Post Digest to VIP Telegram Chat
+### Story PUB-03 - Deterministic Canonical Text Rendering
 
 - **Story ID**: PUB-03
-- **Title**: Send digest via Telegram bot
-- **As a**: System owner
-- **I want**: Digests posted to a VIP Telegram chat using a bot.
-- **So that**: The VIP group receives structured updates automatically.
-
-#### Preconditions
-
-- Telegram bot token and VIP chat ID are configured.
-- Digest text is generated successfully.
+- **Title**: Render canonical digest text deterministically
+- **As a**: Operator
+- **I want**: Canonical text artifact rendering to be deterministic.
+- **So that**: Hashing, dedupe, and auditing are stable.
 
 #### Acceptance Criteria
 
-- A component exists that:
-  - Uses the Telegram Bot API with `TG_BOT_TOKEN`.
-  - Sends the digest text to `TG_VIP_CHAT_ID`.
-- On success:
-  - A log entry records the publish attempt with destination and timestamp.
-- On failure:
-  - The error is logged with enough detail to debug (HTTP status, response body).
-  - No infinite retry loop occurs; failures are bounded and visible.
+- Renderer input is canonical digest model.
+- Renderer output is deterministic plain text bytes for identical input.
+- Canonical text includes no runtime-generated timestamps or volatile fields.
+- If window metadata is shown, only frozen `window_start_utc` and `window_end_utc` are used in fixed UTC format.
+- Footer states informational/no-investment-advice behavior.
 
-#### Out-of-scope
-
-- Splitting very long digests into multiple messages (optional enhancement).
-
-### Story PUB-04 – Record Published Digests
+### Story PUB-04 - Persist Canonical Artifact Before Publish
 
 - **Story ID**: PUB-04
-- **Title**: Persist digest publishing events
-- **As a**: Operator
-- **I want**: An audit log of what was published, where, and when.
-- **So that**: I can trace any digest back to its underlying events.
-
-#### Preconditions
-
-- Digests are generated and posted to Telegram.
+- **Title**: Persist canonical artifact before adapter publish
+- **As a**: System owner
+- **I want**: Canonical digest artifacts persisted before any publish attempt.
+- **So that**: Every publish attempt is traceable to a persisted canonical source artifact.
 
 #### Acceptance Criteria
 
-- A `published_posts` table exists with at least:
-  - `id` (primary key)
-  - `event_id` (nullable foreign key, if digest is tied to a single event) or `null` for multi-event digests
-  - `destination` (e.g., `vip_telegram`)
-  - `published_at` (timestamp)
-  - `content` (text)
-  - `content_hash` (string)
-- For each digest publish:
-  - A new `published_posts` row is inserted with `destination="vip_telegram"`.
-  - `content_hash` is computed deterministically from the digest text.
-- The system does not publish the exact same content hash to the same destination more than once within a configured time window.
+- `digest_artifacts` persistence concept exists.
+- Artifact stores canonical text and deterministic canonical hash.
+- The invariant is enforced:
+  - **No publish attempt occurs unless a canonical artifact has already been persisted.**
 
-#### Out-of-scope
+### Story PUB-05 - Adapter-Based Destination Publishing
 
-- Detailed per-event linkage for multi-event digests (can be addressed via separate link tables later).
+- **Story ID**: PUB-05
+- **Title**: Publish via destination adapters from canonical source
+- **As a**: System owner
+- **I want**: Channel-specific publishing through adapters, not through canonical digest logic.
+- **So that**: New channels can be added without changing digest semantics.
 
+#### Acceptance Criteria
+
+- Adapters consume canonical digest and/or rendered canonical text artifact.
+- Telegram adapter is implemented now.
+- X adapter exists only as placeholder/deferred (not production publishing support).
+- Channel constraints do not leak into canonical model/builder/renderer.
+
+### Story PUB-06 - Minimal Dedupe and Rerun Safety
+
+- **Story ID**: PUB-06
+- **Title**: Per-destination rerun-safe dedupe
+- **As a**: Operator
+- **I want**: Minimal, deterministic dedupe behavior for reruns.
+- **So that**: Successful destination publishes are not duplicated and failed ones can retry.
+
+#### Acceptance Criteria
+
+- Artifact identity uses `canonical_hash`.
+- Destination payload identity uses payload `content_hash`.
+- For an artifact+destination:
+  - If status is `published`, skip publish on rerun.
+  - If status is `failed`, retry on rerun.
+- No per-destination dedupe windows in this version.
+
+### Story PUB-07 - Publication Audit Persistence
+
+- **Story ID**: PUB-07
+- **Title**: Persist per-destination publish outcomes
+- **As a**: Operator
+- **I want**: Destination-level audit rows linked to canonical artifact.
+- **So that**: I can trace published/failed/deferred outcomes per destination.
+
+#### Acceptance Criteria
+
+- `published_posts` persists per-destination outcomes linked to `digest_artifacts`.
+- Rows include destination status and payload hash.
+- Reruns update/skip based on stored status semantics.
+
+### Deferred / Placeholder Scope
+
+- Real X publishing is deferred.
+- Placeholder adapter may return deferred status but does not publish externally.
+- Full run/artifact/publication schema split and advanced dedupe policies are deferred.

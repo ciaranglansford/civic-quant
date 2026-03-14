@@ -9,7 +9,24 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
 - Backend API: `uvicorn app.main:app`
 - Listener (capture): `python -m listener.telegram_listener`
 - Phase2 extraction: `python -m app.jobs.run_phase2_extraction`
-- Reporting digest: `python -m app.jobs.run_digest`
+- Reporting digest (canonical pipeline): `python -m app.jobs.run_digest`
+
+## Digest Pipeline Invariant
+
+**No publish attempt occurs unless a canonical artifact has already been persisted.**
+
+Implementation ownership:
+- Canonical digest pipeline modules live in `app/digest/`.
+- Job entrypoint remains `app/jobs/run_digest.py`.
+- Legacy `app/services/digest_*` and `app/services/telegram_publisher.py` are transitional shims.
+
+## Schema Adoption (Digest Refactor)
+
+- This repository currently has no migration framework.
+- `Base.metadata.create_all(...)` creates missing tables but does not alter existing tables/columns.
+- To adopt the digest schema changes on existing local/dev databases, reset/recreate schema:
+  - `python -m app.jobs.reset_dev_schema`
+- This reset job already exists and is destructive (`drop_all` + `create_all`).
 
 ## Developer Run Sequence (Local)
 
@@ -46,8 +63,9 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
 - Command:
   - `python -m app.jobs.run_digest`
 - Expected outputs:
-  - digest publish/skip logs
-  - `published_posts` updates
+  - canonical artifact persisted in `digest_artifacts`
+  - per-destination publish outcomes in `published_posts`
+  - digest publish/skip/retry logs per destination
 
 6. Validation checks
 - Verify stage outputs in DB:
@@ -55,7 +73,7 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
   - Stage 3: `extractions`
   - Stage 4: `routing_decisions`
   - Stage 5: `events`, `event_messages`
-  - Stage 8: `published_posts`
+  - Stage 8: `digest_artifacts`, `published_posts`
 
 ## When to Run What
 
@@ -66,14 +84,14 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
 ## Data Lifecycle + Reprocess Safety
 
 - Raw data (`raw_messages`) is immutable source-of-record.
-- Derived data (`extractions`, `routing_decisions`, `events`, `event_messages`, `published_posts`, processing state) is reprocessable.
+- Derived data (`extractions`, `routing_decisions`, `events`, `event_messages`, `digest_artifacts`, `published_posts`, processing state) is reprocessable.
 
 ### Reprocess Commands
 
 - Preserve raw, clear derived:
   - `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages`
 - Full dev schema reset (destructive):
-  - `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+  - `python -m app.jobs.reset_dev_schema`
 
 Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full reset for schema-level resets.
 
@@ -88,6 +106,13 @@ Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full re
 - Recommended: every 4 hours (or `VIP_DIGEST_HOURS`)
 - Example:
   - `0 */4 * * * python -m app.jobs.run_digest`
+
+### Digest Rerun / Idempotency Behavior
+- Canonical artifact is persisted before destination publish attempts.
+- If a destination already has `published` status for an artifact, rerun skips that destination.
+- If a destination has `failed` status for an artifact, rerun retries that destination.
+- Telegram is implemented now via adapter.
+- X adapter is placeholder/deferred only and is disabled by default.
 
 ## Targeted Test Commands
 
