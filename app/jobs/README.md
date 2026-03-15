@@ -13,6 +13,7 @@ This folder contains operational scripts you run as Python modules from the repo
 
 | Job module | Command | What it does (1-liner) | Required env |
 |---|---|---|---|
+| `backfill_telegram_raw_messages` | `python -m app.jobs.backfill_telegram_raw_messages --limit 100` | Pulls the most recent Telegram messages and inserts them into `raw_messages` through the ingest pipeline. | `TG_API_ID`, `TG_API_HASH`, `TG_SESSION_NAME`, `TG_SOURCE_CHANNEL`, `DATABASE_URL` |
 | `run_phase2_extraction` | `python -m app.jobs.run_phase2_extraction` | Runs one phase2 extraction batch and writes extraction, triage, and event updates to DB. | `PHASE2_EXTRACTION_ENABLED=true`, `OPENAI_API_KEY`, `DATABASE_URL` |
 | `run_digest` | `python -m app.jobs.run_digest` | Builds/publishes the digest from current event data. | `DATABASE_URL` (and digest delivery vars if publishing) |
 | `test_openai_extract` | `python -m app.jobs.test_openai_extract` | Smoke-tests the OpenAI extraction call and prints validated JSON output. | `PHASE2_EXTRACTION_ENABLED=true`, `OPENAI_API_KEY` |
@@ -35,6 +36,20 @@ Detail mode (single raw message id):
 
 ```bash
 python -m app.jobs.inspect_pipeline --detail 123
+```
+
+### `backfill_telegram_raw_messages`
+
+Backfill the latest 250 messages from your configured source channel:
+
+```bash
+python -m app.jobs.backfill_telegram_raw_messages --limit 250
+```
+
+Override channel at runtime (useful for ad-hoc recovery against another source):
+
+```bash
+python -m app.jobs.backfill_telegram_raw_messages --limit 250 --channel @your_channel_name
 ```
 
 ### `clear_all_but_raw_messages`
