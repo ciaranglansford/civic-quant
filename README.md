@@ -36,12 +36,17 @@ The refined target-state flow is:
 - FastAPI backend with:
   - `GET /health`
   - `POST /ingest/telegram`
-  - `POST /admin/process/phase2-extractions` (token-gated)
+  - `POST /admin/process/phase2-extractions` (token-gated; supports `?force_reprocess=true`)
 - Poll-based Telegram listener (`python -m listener.telegram_listener`) that forwards messages to ingest API.
 - Idempotent raw capture into `raw_messages`.
 - Deterministic normalization before extraction.
-- Scheduled/manual phase2 extraction (`python -m app.jobs.run_phase2_extraction`) using OpenAI Responses API with strict schema validation and prompt template `extraction_agent_v2`.
+- Scheduled/manual phase2 extraction (`python -m app.jobs.run_phase2_extraction`) using OpenAI Responses API with strict schema validation and prompt template `extraction_agent_v3`.
 - Extraction persistence stores raw validated payload (`payload_json`) and deterministic canonicalized payload (`canonical_payload_json`).
+- Two-level identity contract is active:
+  - replay identity (`raw_message_id` + normalized text hash + extractor/prompt/schema/canonicalizer versions) for same-message reruns
+  - event identity fingerprint (`event_identity_fingerprint_v2`) for cross-message clustering
+- Replay-safe default behavior is active: identical replay identity reuses existing canonical extraction and skips model calls unless forced reprocess is requested.
+- Content-level reuse is active by default: identical normalized text under the same extractor contract can reuse a prior canonical extraction across different `raw_message_id`s and skip repeat model calls.
 - Deterministic routing + triage + event upsert (`events`, `event_messages`, `routing_decisions`) with entity indexing (`entity_mentions`).
 - Stage 1 deterministic calibration is active in triage/routing:
   - score bands are used for routing decisions (raw scores remain unchanged),
@@ -49,6 +54,7 @@ The refined target-state flow is:
   - local domestic incident patterns are capped to monitor-or-lower and forced evidence-required,
   - high-risk unattributed summaries are safety-rewritten only in canonical payloads.
 - Digest job (`python -m app.jobs.run_digest`) publishing event-based summaries.
+- Existing-data adoption job (`python -m app.jobs.adopt_stability_contracts`) is available for backfill/audit/duplicate cleanup before enabling stricter unique indexes.
 
 ## Component Map
 
@@ -91,6 +97,8 @@ pip install -r requirements.txt
   - `OPENAI_MAX_RETRIES`
   - `PHASE2_BATCH_SIZE`
   - `PHASE2_LEASE_SECONDS`
+  - `PHASE2_CONTENT_REUSE_ENABLED` (default `true`)
+  - `PHASE2_CONTENT_REUSE_WINDOW_HOURS` (default `6`)
   - `PHASE2_ADMIN_TOKEN` (for admin trigger endpoint)
 
 ## Local Execution Paths

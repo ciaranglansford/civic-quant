@@ -48,9 +48,9 @@ def test_backend_fingerprint_is_invariant_to_normalization_variants():
 
     assert canonical_a.event_fingerprint == canonical_b.event_fingerprint
     assert fp_a.fingerprint == fp_b.fingerprint
-    assert fp_a.version == "v1"
-    assert fp_b.version == "v1"
-    assert fp_a.canonical_input.startswith("v1|event_type=")
+    assert fp_a.version == "v2"
+    assert fp_b.version == "v2"
+    assert fp_a.canonical_input.startswith("v2|event_type=")
     assert "event_fingerprint_backend_override" in rules_a
     assert "event_fingerprint_backend_override" in rules_b
 

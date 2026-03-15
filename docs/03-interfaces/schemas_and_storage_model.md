@@ -47,6 +47,12 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
 - `is_breaking`
 - `breaking_window`
 - `event_fingerprint`
+- `event_identity_fingerprint_v2`
+- `normalized_text_hash`
+- `replay_identity_key`
+- `canonical_payload_hash`
+- `claim_hash`
+- `canonicalizer_version`
 
 #### Compatibility / traceability fields
 - `model_name` (legacy compatibility)
@@ -63,6 +69,32 @@ Define structured claim schema and storage contracts for a Telegram wire-bulleti
 - `metadata_json`: provider telemetry and processing context (`used_openai`, model, response id, latency, retries, fallback reason, canonicalization rules).
   - Includes `impact_scoring` metadata: `raw_llm_score`, `calibrated_score`, `score_band`, `shock_flags`, `rules_fired`, `score_breakdown`.
   - `score_breakdown` is deterministic and reproducible from backend rule logic + structured extraction fields (no ad hoc model inference).
+  - Includes replay/identity metadata: `normalized_text_hash`, `replay_identity_key`, `canonical_payload_hash`, `claim_hash`, `action_class`, `event_time_bucket`, `canonicalizer_version`.
+  - Includes reuse telemetry: `replay_reused`, `content_reused`, `content_reuse_source_extraction_id`, `canonical_payload_unchanged`.
+
+### Replay Identity Contract (Level A)
+
+- Purpose: detect when the same raw message is being reprocessed under the same extraction contract.
+- Replay identity key inputs:
+  - `raw_message_id`
+  - `normalized_text_hash`
+  - `extractor_name`
+  - `prompt_version`
+  - `schema_version`
+  - `canonicalizer_version`
+- Default behavior:
+  - If replay identity key matches and force-reprocess is not requested, reuse existing canonical extraction row and skip model call.
+  - If replay identity does not match but normalized text hash + extractor contract match a prior extraction, reuse that canonical extraction (content reuse) and skip model call.
+  - If extractor/prompt/schema/canonicalizer versions change (or force-reprocess is set), model call is allowed.
+
+### Event Identity Contract (Level B)
+
+- Purpose: cluster extractions from different raw messages into canonical events.
+- Authoritative key: `event_identity_fingerprint_v2`.
+- Additional comparison key: `claim_hash`.
+- Update policy:
+  - same `event_identity_fingerprint_v2` + same `claim_hash` -> no-op event update
+  - same `event_identity_fingerprint_v2` + different `claim_hash` -> controlled update or review-required conflict path depending on action/time conflict
 
 ### Routing / Triage Contract (`routing_decisions`)
 
@@ -110,6 +142,9 @@ ovelty_cluster_key`
 - Messages are observations.
 - Events are evolving clusters of related observations.
 - Event-level records are the primary downstream indexing/reporting unit.
+- `events.event_identity_fingerprint_v2` is the strict event identity key for hard-match upsert behavior.
+- `events.claim_hash`, `events.action_class`, and `events.event_time_bucket` support deterministic conflict handling.
+- `events.review_required/review_reason` flag cases where same identity receives materially conflicting claim updates.
 
 ### Entity Indexing Contract (`entity_mentions`)
 
@@ -133,12 +168,17 @@ ovelty_cluster_key`
 - Raw layer (`raw_messages`) should be preserved as immutable source history.
 - Derived layers (`extractions`, `routing_decisions`, `events`, `event_messages`, `published_posts`, processing states) are recomputable from raw inputs.
 - Operational scripts support both preserve-raw and full-reset workflows.
+- Existing-data adoption workflow:
+  - run `python -m app.jobs.adopt_stability_contracts` to backfill replay/identity hashes and audit duplicates
+  - optionally merge exact duplicate identity groups with `--merge-exact`
+  - optionally apply unique indexes with `--apply-unique-indexes` after duplicate cleanup
 
 ### Indexing Summary (Retrieval-Oriented)
 
 - `extractions(topic, event_time)`
 - `extractions(topic, event_time, impact_score)`
 - `extractions(event_fingerprint)`
+- `extractions(normalized_text_hash, extractor_name, prompt_version, schema_version, canonicalizer_version, created_at)`
 - `entity_mentions(entity_type, entity_value, event_time)`
 - `entity_mentions(topic, event_time)`
 - `entity_mentions(is_breaking, event_time)`

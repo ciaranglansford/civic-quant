@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -67,7 +68,8 @@ _COUNTRY_ALIASES: dict[str, str] = {
     "eu": "European Union",
 }
 
-FINGERPRINT_VERSION = "v1"
+CANONICALIZER_VERSION = "canon_v2"
+FINGERPRINT_VERSION = "v2"
 _MISSING_TOKEN = "~"
 
 
@@ -77,6 +79,8 @@ class FingerprintComputation:
     canonical_input: str
     fingerprint: str | None
     hard_identity_sufficient: bool
+    action_class: str
+    event_time_bucket: str
 
 
 def _normalize_spaces(value: str) -> str:
@@ -243,6 +247,73 @@ def _join_or_missing(values: list[str]) -> str:
     return ",".join(values)
 
 
+def _normalized_summary(extraction: ExtractionJson) -> str:
+    return _safe_token(extraction.summary_1_sentence or "")
+
+
+def derive_action_class(extraction: ExtractionJson) -> str:
+    text = _normalize_spaces(
+        " ".join(
+            [
+                extraction.summary_1_sentence or "",
+                extraction.event_core or "",
+                " ".join(extraction.keywords),
+            ]
+        )
+    ).lower()
+
+    if any(token in text for token in ("ceasefire", "talk", "negotiat", "diplom", "meeting", "summit", "agreement")):
+        return "diplomatic"
+    if any(token in text for token in ("strike", "attack", "missile", "drone", "shelling", "airstrike", "troops")):
+        return "operational"
+    if any(token in text for token in ("warn", "threat", "retaliat", "respond", "response")):
+        return "threat_response"
+    if any(token in text for token in ("sanction", "tariff", "export control", "embargo")):
+        return "policy_restriction"
+    if any(token in text for token in ("supply", "shipment", "pipeline", "loading", "halt", "disruption")):
+        return "supply_disruption"
+    if any(token in text for token in ("rate", "yield", "spread", "fx", "inflation", "gdp", "cpi")):
+        return "market_macro"
+    if any(token in text for token in ("probe", "investigation", "lawsuit", "charged", "regulator")):
+        return "legal_regulatory"
+    return "other"
+
+
+def event_time_bucket(extraction: ExtractionJson) -> str:
+    if extraction.event_time is None:
+        return "unknown"
+    return extraction.event_time.date().isoformat()
+
+
+def compute_claim_hash(extraction: ExtractionJson) -> str:
+    action_class = derive_action_class(extraction)
+    source = _safe_token(extraction.source_claimed or "")
+    summary = _normalized_summary(extraction)
+    keywords = _join_or_missing(_tokenize(extraction.keywords, limit=8))
+    actors = _join_or_missing(_tokenize(extraction.entities.orgs + extraction.entities.people, limit=6))
+    countries = _join_or_missing(_tokenize(extraction.entities.countries, limit=6))
+    bucket = event_time_bucket(extraction)
+
+    claim_input = (
+        f"claim_v1"
+        f"|topic={_safe_token(extraction.topic)}"
+        f"|action_class={action_class}"
+        f"|source={source}"
+        f"|summary={summary}"
+        f"|keywords={keywords}"
+        f"|actors={actors}"
+        f"|countries={countries}"
+        f"|time_bucket={bucket}"
+    )
+    return hashlib.sha256(claim_input.encode("utf-8")).hexdigest()
+
+
+def compute_canonical_payload_hash(extraction: ExtractionJson) -> str:
+    payload = extraction.model_dump(mode="json")
+    canonical_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
 def _select_actor(extraction: ExtractionJson) -> str:
     if extraction.source_claimed and extraction.source_claimed.strip():
         return _safe_token(extraction.source_claimed)
@@ -271,47 +342,27 @@ def _select_target(extraction: ExtractionJson, actor: str) -> str:
 def compute_authoritative_fingerprint(extraction: ExtractionJson) -> FingerprintComputation:
     actor = _select_actor(extraction)
     target = _select_target(extraction, actor)
-
-    keyword_tokens = _tokenize(extraction.keywords, limit=3)
-    action = keyword_tokens[0] if keyword_tokens else _MISSING_TOKEN
-    subject = _join_or_missing(keyword_tokens)
-
+    action_class = derive_action_class(extraction)
+    time_bucket = event_time_bucket(extraction)
+    identity_topic = extraction.topic
+    if extraction.topic in {"war_security", "geopolitics"}:
+        identity_topic = "conflict_geo"
     location_values = extraction.affected_countries_first_order or extraction.entities.countries
-    location = _join_or_missing(_tokenize(location_values))
-    country = _join_or_missing(_tokenize(extraction.entities.countries))
-
-    date = _MISSING_TOKEN
-    precision = "unknown"
-    if extraction.event_time is not None:
-        date = extraction.event_time.date().isoformat()
-        precision = "day"
-
-    orgs = _join_or_missing(_tokenize(extraction.entities.orgs))
-    people = _join_or_missing(_tokenize(extraction.entities.people))
-    tickers = _join_or_missing(_tokenize(extraction.entities.tickers, upper=True))
+    location_tokens = _tokenize(location_values)
+    primary_location = location_tokens[0] if location_tokens else _MISSING_TOKEN
 
     canonical_input = (
         f"{FINGERPRINT_VERSION}"
-        f"|event_type={_safe_token(extraction.topic)}"
+        f"|event_type={_safe_token(identity_topic)}"
         f"|actor={actor}"
         f"|target={target}"
-        f"|action={action}"
-        f"|subject={subject}"
-        f"|location={location}"
-        f"|country={country}"
-        f"|date={date}"
-        f"|precision={precision}"
-        f"|orgs={orgs}"
-        f"|people={people}"
-        f"|tickers={tickers}"
+        f"|action_class={action_class}"
+        f"|location_primary={primary_location}"
+        f"|time_bucket={time_bucket}"
     )
-    has_entity_anchor = any(
-        value != _MISSING_TOKEN
-        for value in (actor, target, location, country, orgs, people, tickers)
-    )
-    has_semantic_anchor = action != _MISSING_TOKEN or subject != _MISSING_TOKEN
-    has_time_anchor = date != _MISSING_TOKEN
-    hard_identity_sufficient = has_entity_anchor and (has_semantic_anchor or has_time_anchor)
+    has_identity_anchor = any(value != _MISSING_TOKEN for value in (actor, target, primary_location))
+    has_event_shape = action_class != "other" or time_bucket != "unknown"
+    hard_identity_sufficient = has_identity_anchor and has_event_shape
 
     fingerprint: str | None = None
     if hard_identity_sufficient:
@@ -322,6 +373,8 @@ def compute_authoritative_fingerprint(extraction: ExtractionJson) -> Fingerprint
         canonical_input=canonical_input,
         fingerprint=fingerprint,
         hard_identity_sufficient=hard_identity_sufficient,
+        action_class=action_class,
+        event_time_bucket=time_bucket,
     )
 
 

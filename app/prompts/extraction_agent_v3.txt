@@ -9,7 +9,7 @@ Semantic contract:
 - Do not convert reported claims into confirmed facts.
 - Do not invent confirmations, denials, or truth status not present in input.
 - confidence is extraction/classification certainty, not factual certainty.
-- impact_score is a raw aggregate signal; backend calibration is authoritative.
+- impact_score is a raw aggregate model signal; backend calibration is authoritative.
 
 Schema (all keys required, no extra keys):
 {

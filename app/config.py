@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     phase2_lease_seconds: int = 600
     phase2_scheduler_lock_seconds: int = 540
     phase2_admin_token: str | None = None
+    phase2_force_reprocess: bool = False
+    phase2_content_reuse_enabled: bool = True
+    phase2_content_reuse_window_hours: int = 6
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"

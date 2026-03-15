@@ -358,7 +358,7 @@ def test_rerun_retries_failed_destination():
             os.remove(db_path)
 
 
-def test_orchestrator_filters_out_events_with_impact_30_or_lower():
+def test_orchestrator_filters_out_events_with_impact_25_or_lower():
     db_path = "./test_civicquant_digest_impact_filter.db"
     SessionLocal, engine = _session_factory(db_path)
 
@@ -383,7 +383,7 @@ def test_orchestrator_filters_out_events_with_impact_30_or_lower():
                 fingerprint="i-low",
                 topic="fx",
                 summary="Low impact excluded",
-                impact=30.0,
+                impact=25.0,
                 updated_at=now - timedelta(minutes=5),
             )
             _seed_event(
@@ -391,7 +391,7 @@ def test_orchestrator_filters_out_events_with_impact_30_or_lower():
                 fingerprint="i-high",
                 topic="fx",
                 summary="High impact included",
-                impact=31.0,
+                impact=26.0,
                 updated_at=now - timedelta(minutes=4),
             )
             db.commit()

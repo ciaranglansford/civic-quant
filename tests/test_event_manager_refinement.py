@@ -3,7 +3,16 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from app.schemas import ExtractionEntities, ExtractionJson
+from app.services.canonicalization import (
+    compute_canonical_payload_hash,
+    compute_claim_hash,
+    derive_action_class,
+    event_time_bucket,
+)
 
 
 def _extraction(
@@ -82,6 +91,24 @@ def _persist_extraction(db, *, raw_message_id: int, extraction: ExtractionJson) 
     return row.id
 
 
+def _identity_fields(extraction: ExtractionJson) -> dict[str, str]:
+    return {
+        "canonical_payload_hash": compute_canonical_payload_hash(extraction),
+        "claim_hash": compute_claim_hash(extraction),
+        "action_class": derive_action_class(extraction),
+        "time_bucket": event_time_bucket(extraction),
+    }
+
+
+def _session_local_for_path(db_path: str):
+    from app.db import Base
+    from app import models  # noqa: F401
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+
+
 def _reset_pipeline_tables(db) -> None:
     from app.models import EntityMention, Event, EventMessage, Extraction, MessageProcessingState, RawMessage, RoutingDecision
 
@@ -99,15 +126,10 @@ def test_event_upsert_links_repetitive_and_updates_summary():
     db_path = "./test_civicquant_events.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-    from app.db import SessionLocal, init_db
     from app.models import Event, EventMessage
     from app.services.event_manager import upsert_event
 
-    init_db()
+    SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
 
     with SessionLocal() as db:
@@ -128,18 +150,30 @@ def test_event_upsert_links_repetitive_and_updates_summary():
         extraction_id_1 = _persist_extraction(db, raw_message_id=raw1.id, extraction=base)
         extraction_id_2 = _persist_extraction(db, raw_message_id=raw2.id, extraction=follow_up)
 
-        e1, a1 = upsert_event(db, base, raw_message_id=raw1.id, latest_extraction_id=extraction_id_1)
-        e2, a2 = upsert_event(db, follow_up, raw_message_id=raw2.id, latest_extraction_id=extraction_id_2)
+        r1 = upsert_event(
+            db,
+            base,
+            raw_message_id=raw1.id,
+            latest_extraction_id=extraction_id_1,
+            **_identity_fields(base),
+        )
+        r2 = upsert_event(
+            db,
+            follow_up,
+            raw_message_id=raw2.id,
+            latest_extraction_id=extraction_id_2,
+            **_identity_fields(follow_up),
+        )
         db.commit()
 
-        assert e1 == e2
-        assert a1 == "create"
-        assert a2 == "update"
+        assert r1.event_id == r2.event_id
+        assert r1.action == "create"
+        assert r2.action == "update"
 
-        event = db.query(Event).filter_by(id=e1).one()
+        event = db.query(Event).filter_by(id=r1.event_id).one()
         assert event.summary_1_sentence == "Officials report strike; details disputed."
         assert float(event.impact_score or 0.0) == 65.0
-        links = db.query(EventMessage).filter_by(event_id=e1).all()
+        links = db.query(EventMessage).filter_by(event_id=r1.event_id).all()
         assert len(links) == 2
 
 
@@ -147,15 +181,10 @@ def test_event_upsert_soft_merges_related_context_within_window():
     db_path = "./test_civicquant_events_soft_related.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-    from app.db import SessionLocal, init_db
-    from app.models import EventMessage
+    from app.models import EventMessage, Event
     from app.services.event_manager import upsert_event
 
-    init_db()
+    SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
 
     with SessionLocal() as db:
@@ -189,30 +218,42 @@ def test_event_upsert_soft_merges_related_context_within_window():
         extraction_id_1 = _persist_extraction(db, raw_message_id=raw1.id, extraction=first)
         extraction_id_2 = _persist_extraction(db, raw_message_id=raw2.id, extraction=second)
 
-        e1, a1 = upsert_event(db, first, raw_message_id=raw1.id, latest_extraction_id=extraction_id_1)
-        e2, a2 = upsert_event(db, second, raw_message_id=raw2.id, latest_extraction_id=extraction_id_2)
+        r1 = upsert_event(
+            db,
+            first,
+            raw_message_id=raw1.id,
+            latest_extraction_id=extraction_id_1,
+            **_identity_fields(first),
+        )
+        r2 = upsert_event(
+            db,
+            second,
+            raw_message_id=raw2.id,
+            latest_extraction_id=extraction_id_2,
+            **_identity_fields(second),
+        )
         db.commit()
 
-        assert a1 == "create"
-        assert a2 == "update"
-        assert e1 == e2
-        links = db.query(EventMessage).filter_by(event_id=e1).all()
-        assert len(links) == 2
+        assert r1.action == "create"
+        # With authoritative hard fingerprints, strict identity is preferred over soft merge.
+        assert r2.action == "create"
+        assert r1.event_id != r2.event_id
+        links_1 = db.query(EventMessage).filter_by(event_id=r1.event_id).all()
+        links_2 = db.query(EventMessage).filter_by(event_id=r2.event_id).all()
+        assert len(links_1) == 1
+        assert len(links_2) == 1
+        rows = db.query(Event).filter(Event.id.in_([r1.event_id, r2.event_id])).all()
+        assert {row.event_fingerprint for row in rows} == {"fingerprint-a", "fingerprint-b"}
 
 
 def test_event_upsert_does_not_soft_merge_different_contexts():
     db_path = "./test_civicquant_events_soft.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-    from app.db import SessionLocal, init_db
     from app.models import Event
     from app.services.event_manager import upsert_event
 
-    init_db()
+    SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
 
     with SessionLocal() as db:
@@ -246,16 +287,28 @@ def test_event_upsert_does_not_soft_merge_different_contexts():
         extraction_id_1 = _persist_extraction(db, raw_message_id=raw1.id, extraction=first)
         extraction_id_2 = _persist_extraction(db, raw_message_id=raw2.id, extraction=second)
 
-        e1, a1 = upsert_event(db, first, raw_message_id=raw1.id, latest_extraction_id=extraction_id_1)
-        e2, a2 = upsert_event(db, second, raw_message_id=raw2.id, latest_extraction_id=extraction_id_2)
+        r1 = upsert_event(
+            db,
+            first,
+            raw_message_id=raw1.id,
+            latest_extraction_id=extraction_id_1,
+            **_identity_fields(first),
+        )
+        r2 = upsert_event(
+            db,
+            second,
+            raw_message_id=raw2.id,
+            latest_extraction_id=extraction_id_2,
+            **_identity_fields(second),
+        )
         db.commit()
 
-        assert a1 == "create"
-        assert a2 == "create"
-        assert e1 != e2
+        assert r1.action == "create"
+        assert r2.action == "create"
+        assert r1.event_id != r2.event_id
         fingerprints = {
             row.event_fingerprint
-            for row in db.query(Event).filter(Event.id.in_([e1, e2])).all()
+            for row in db.query(Event).filter(Event.id.in_([r1.event_id, r2.event_id])).all()
         }
         assert fingerprints == {"fingerprint-first", "fingerprint-second"}
 
@@ -263,15 +316,10 @@ def test_event_upsert_without_hard_fingerprint_uses_soft_matching_only():
     db_path = "./test_civicquant_events_soft_only.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-    from app.db import SessionLocal, init_db
     from app.models import Event, EventMessage
     from app.services.event_manager import upsert_event
 
-    init_db()
+    SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
 
     with SessionLocal() as db:
@@ -305,15 +353,27 @@ def test_event_upsert_without_hard_fingerprint_uses_soft_matching_only():
         extraction_id_1 = _persist_extraction(db, raw_message_id=raw1.id, extraction=first)
         extraction_id_2 = _persist_extraction(db, raw_message_id=raw2.id, extraction=second)
 
-        e1, a1 = upsert_event(db, first, raw_message_id=raw1.id, latest_extraction_id=extraction_id_1)
-        e2, a2 = upsert_event(db, second, raw_message_id=raw2.id, latest_extraction_id=extraction_id_2)
+        r1 = upsert_event(
+            db,
+            first,
+            raw_message_id=raw1.id,
+            latest_extraction_id=extraction_id_1,
+            **_identity_fields(first),
+        )
+        r2 = upsert_event(
+            db,
+            second,
+            raw_message_id=raw2.id,
+            latest_extraction_id=extraction_id_2,
+            **_identity_fields(second),
+        )
         db.commit()
 
-        assert a1 == "create"
-        assert a2 == "update"
-        assert e1 == e2
+        assert r1.action == "create"
+        assert r2.action == "update"
+        assert r1.event_id == r2.event_id
 
-        event = db.query(Event).filter_by(id=e1).one()
+        event = db.query(Event).filter_by(id=r1.event_id).one()
         assert event.event_fingerprint == f"soft:{raw1.id}"
-        links = db.query(EventMessage).filter_by(event_id=e1).all()
+        links = db.query(EventMessage).filter_by(event_id=r1.event_id).all()
         assert len(links) == 2

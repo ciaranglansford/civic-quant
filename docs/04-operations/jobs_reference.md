@@ -28,6 +28,7 @@ python -m app.jobs.run_phase2_extraction
 | `test_openai_extract` | Runs a single extraction smoke test against OpenAI + schema validation (no DB writes). | `python -m app.jobs.test_openai_extract` |
 | `clear_all_but_raw_messages` | Deletes derived pipeline tables while preserving `raw_messages`. | `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages` |
 | `reset_dev_schema` | Drops and recreates all tables from SQLAlchemy models (destructive). | `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema` |
+| `adopt_stability_contracts` | Backfills replay/identity hashes, audits duplicate event identities, and optionally merges exact duplicates / applies unique indexes. | `python -m app.jobs.adopt_stability_contracts` |
 
 ## Before/After by Job
 
@@ -39,6 +40,8 @@ python -m app.jobs.run_phase2_extraction
   - Env requires `PHASE2_EXTRACTION_ENABLED=true` and `OPENAI_API_KEY`.
 - After:
   - `extractions` inserted/updated for processed messages.
+  - identical replay identity rows are reused without model call by default.
+  - identical normalized text rows (same extractor/prompt/schema/canonicalizer contract) can reuse prior canonical extraction across different raw messages without model call.
   - `routing_decisions` persisted.
   - `events` and `event_messages` created/updated.
   - `entity_mentions` inserted idempotently.
@@ -81,6 +84,16 @@ python -m app.jobs.run_phase2_extraction
 - After:
   - All tables are dropped and recreated from current models.
   - All data is removed, including `raw_messages`.
+
+### `adopt_stability_contracts`
+
+- Before:
+  - Existing DB may contain historical rows created before replay/event identity v2 contracts.
+- After:
+  - backfilled extraction/event identity hashes
+  - duplicate identity groups audited (exact vs conflict)
+  - optional exact duplicate merge (`--merge-exact`)
+  - optional unique index apply (`--apply-unique-indexes`) once duplicates are cleaned
 
 ## Suggested Order
 

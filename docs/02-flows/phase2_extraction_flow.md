@@ -23,7 +23,11 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 
 3. Extraction
 - Use extractor `extract-and-score-openai-v1`.
-- Call OpenAI Responses API.
+- Compute replay identity key from raw message identity + normalized text hash + extractor/prompt/schema/canonicalizer versions.
+- If replay identity matches an existing extraction row and force-reprocess is not set, reuse existing canonical extraction and skip model call.
+- Else, if content-reuse is enabled, search for a prior extraction with matching normalized text hash + extractor/prompt/schema/canonicalizer contract.
+- If a content-reuse match is found, reuse canonical extraction payload/hashes and skip model call.
+- Otherwise call OpenAI Responses API.
 - Parse and strictly validate JSON schema.
 - Prompt template version: `extraction_agent_v3` (with older templates kept for reproducibility).
 
@@ -31,10 +35,17 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 - Write typed extraction fields for retrieval.
 - Write raw validated payload in `payload_json`.
 - Write deterministic canonicalized payload in `canonical_payload_json`.
+- Write deterministic hash/identity fields:
+  - `normalized_text_hash`
+  - `replay_identity_key`
+  - `canonical_payload_hash`
+  - `claim_hash`
+  - `event_identity_fingerprint_v2`
 - Write provider/processing telemetry in `metadata_json`.
 
 5. Downstream deterministic processing
 - Canonicalize entities/source values deterministically.
+- Generate event identity fingerprint (`v2`) only after canonicalization and backend-owned derivation.
 - Calibrate impact deterministically from canonical fields and rule logic (caps/boosts/band restrictions/shock gating).
   - Raw LLM `impact_score` remains trace-only in metadata.
   - Calibrated score is authoritative for triage/routing/event impact/enrichment decisions.
@@ -46,7 +57,10 @@ Phase2 extraction sits at the Stage 3-5 boundary:
   - Apply burst suppression caps in short windows for highly similar related messages.
   - Apply narrow local domestic incident downgrade and evidence-required override.
 - Create/update event clusters.
-  - Stage 1 keeps exact fingerprint+window association as the only event-linking path.
+  - Hard-identity path: strict lookup by `event_identity_fingerprint_v2`.
+  - Soft contextual matching path is used only when hard identity is unavailable.
+  - Same identity + same claim hash -> no-op update.
+  - Same identity + materially conflicting claim class/time bucket -> mark review-required and suppress promotion.
 - Index entities to `entity_mentions` for retrieval-ready query paths.
 - Run deferred enrichment selection hook with novelty filtering and persist `enrichment_candidates`.
 - Mark processing state `completed` or `failed`.
@@ -72,6 +86,9 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 
 - Raw messages are immutable and not rewritten by phase2 extraction.
 - Completed rows are skipped by eligibility logic unless state is reset.
+- If a completed/pending row is reprocessed with identical replay identity, model inference is skipped and prior canonical extraction is reused.
+- If a different raw message has identical normalized text under the same extractor contract (within content-reuse window), model inference is skipped and prior canonical extraction is reused.
+- Force reprocess (`/admin/process/phase2-extractions?force_reprocess=true`) bypasses both replay reuse and content reuse for that run.
 - Reprocessing derived layers can be done by clearing non-raw tables and rerunning extraction.
 - Full schema reset is destructive and should be used only for dev reset scenarios.
 
