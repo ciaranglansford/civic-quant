@@ -19,6 +19,7 @@ This folder contains operational scripts you run as Python modules from the repo
 | `inspect_pipeline` | `python -m app.jobs.inspect_pipeline` | Prints a recent end-to-end pipeline overview (raw -> extraction -> routing -> event). | `DATABASE_URL` |
 | `clear_all_but_raw_messages` | `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages` | Deletes all derived pipeline tables while preserving `raw_messages`. | `DATABASE_URL`, `CONFIRM_CLEAR_NON_RAW=true` |
 | `reset_dev_schema` | `python -m app.jobs.reset_dev_schema` | Drops and recreates the full DB schema for a clean dev reset. | `DATABASE_URL` |
+| `adopt_stability_contracts` | `python -m app.jobs.adopt_stability_contracts` | Backfills replay/identity hashes, audits duplicate event identities, and can optionally merge exact duplicates/apply unique indexes. | `DATABASE_URL` |
 
 ## Job-specific usage
 
@@ -58,11 +59,37 @@ python -m app.jobs.reset_dev_schema
 
 Warning: this is destructive and currently executes without a runtime confirmation guard in code.
 
+### `adopt_stability_contracts`
+
+Audit/backfill only:
+
+```bash
+python -m app.jobs.adopt_stability_contracts
+```
+
+Dry-run (no writes committed):
+
+```bash
+python -m app.jobs.adopt_stability_contracts --dry-run
+```
+
+Merge exact duplicate identity groups and apply unique indexes after cleanup:
+
+```bash
+python -m app.jobs.adopt_stability_contracts --merge-exact --apply-unique-indexes
+```
+
 ## Practical run order (local)
 
 1. `python -m app.jobs.run_phase2_extraction`
 2. `python -m app.jobs.inspect_pipeline --limit 20`
 3. `python -m app.jobs.run_digest`
+
+## Phase2 replay/content reuse knobs
+
+- `PHASE2_FORCE_REPROCESS` (default `false`): force model call even when replay/content reuse candidates exist.
+- `PHASE2_CONTENT_REUSE_ENABLED` (default `true`): allow cross-message canonical extraction reuse when normalized text + extractor contract match.
+- `PHASE2_CONTENT_REUSE_WINDOW_HOURS` (default `6`): only reuse prior extractions created within this window (set `0` or negative to disable window bound).
 
 ## Troubleshooting
 

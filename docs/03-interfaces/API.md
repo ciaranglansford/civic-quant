@@ -28,7 +28,12 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 ### `POST /admin/process/phase2-extractions`
 - Purpose: manual internal trigger for one phase2 extraction run.
 - Guard: admin token header.
+- Query params:
+  - `force_reprocess` (optional bool, default `false`)
 - Behavior: runs same extraction processing logic used by scheduled job.
+  - `force_reprocess=false`: replay-identity matches reuse existing extraction rows and skip model calls.
+  - `force_reprocess=false`: content-reuse matches (same normalized text + extractor contract) can reuse prior canonical extraction across different raw messages.
+  - `force_reprocess=true`: bypass replay/content reuse for that run.
 
 ## Request/Response Contract Notes
 
@@ -50,6 +55,7 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 - `python -m app.jobs.test_openai_extract`
 - `python -m app.jobs.reset_dev_schema`
 - `python -m app.jobs.clear_all_but_raw_messages`
+- `python -m app.jobs.adopt_stability_contracts`
 
 ### Listener Runtime
 

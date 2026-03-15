@@ -131,7 +131,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.impact_score == extraction.metadata_json["impact_scoring"]["calibrated_score"]
         assert extraction.confidence == 0.9
         assert extraction.sentiment == "neutral"
-        assert extraction.event_fingerprint.startswith("v1:")
+        assert extraction.event_fingerprint.startswith("v2:")
         assert len(extraction.event_fingerprint) == 67
         assert extraction.payload_json["topic"] == "central_banks"
         assert extraction.payload_json["entities"]["countries"] == ["U.S."]
@@ -145,10 +145,18 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.metadata_json["latency_ms"] == 42
         assert extraction.metadata_json["canonicalization_rules"]
         assert extraction.metadata_json["backend_event_fingerprint"] == extraction.event_fingerprint
-        assert extraction.metadata_json["backend_event_fingerprint_version"] == "v1"
-        assert extraction.metadata_json["backend_event_fingerprint_input"].startswith("v1|event_type=")
+        assert extraction.metadata_json["backend_event_fingerprint_version"] == "v2"
+        assert extraction.metadata_json["backend_event_fingerprint_input"].startswith("v2|event_type=")
         assert extraction.metadata_json["llm_event_fingerprint_candidate"] == "central_banks|2025-01-01|us|ecb|||eur|policy_shift"
         assert extraction.metadata_json["impact_scoring"]["score_breakdown"]["score_band_computed_after_rules"] is True
+        assert extraction.normalized_text_hash
+        assert extraction.replay_identity_key
+        assert extraction.canonical_payload_hash
+        assert extraction.claim_hash
+        assert extraction.event_identity_fingerprint_v2 == extraction.event_fingerprint
+        assert extraction.metadata_json["canonicalizer_version"] == "canon_v2"
+        assert extraction.metadata_json["canonical_payload_hash"] == extraction.canonical_payload_hash
+        assert extraction.metadata_json["claim_hash"] == extraction.claim_hash
         decision = db.query(RoutingDecision).filter_by(raw_message_id=raw.id).one()
         assert decision.triage_action in {"monitor", "update", "promote", "archive"}
         assert isinstance(decision.triage_rules, list)
@@ -157,6 +165,95 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert any(m.entity_type == "country" and m.entity_value == "United States" for m in mentions)
         states = db.query(MessageProcessingState).all()
         assert any(s.status == "completed" for s in states)
+
+
+def test_phase2_replay_reuses_existing_extraction_and_skips_model(monkeypatch, client: TestClient):
+    client.post("/ingest/telegram", json=_payload("c1", "m2-replay", "BOE signals policy shift; GBP rises 0.5%"))
+
+    from app.services import extraction_llm_client
+
+    calls = {"count": 0}
+
+    def fake_extract(self, prompt_text: str):
+        calls["count"] += 1
+        return extraction_llm_client.LlmResponse(
+            extractor_name="extract-and-score-openai-v1",
+            used_openai=True,
+            model_name="gpt-4o-mini",
+            openai_response_id=f"resp_replay_{calls['count']}",
+            latency_ms=12,
+            retries=0,
+            raw_text='{"topic":"central_banks","entities":{"countries":["U.S."],"orgs":["ECB"],"people":[],"tickers":["EUR"]},"affected_countries_first_order":["usa"],"market_stats":[{"label":"move","value":0.5,"unit":"%","context":"EUR"}],"sentiment":"neutral","confidence":0.9,"impact_score":55,"is_breaking":false,"breaking_window":"none","event_time":"2025-01-01T00:00:00","source_claimed":"ECB","summary_1_sentence":"ECB says policy may shift.","keywords":["ECB","EUR"],"event_fingerprint":"candidate"}',
+        )
+
+    monkeypatch.setattr(extraction_llm_client.OpenAiExtractionClient, "extract", fake_extract)
+    r1 = client.post("/admin/process/phase2-extractions", headers={"x-admin-token": "secret-admin"})
+    assert r1.status_code == 200
+    assert calls["count"] == 1
+
+    from app.db import SessionLocal
+    from app.models import Extraction, MessageProcessingState, RawMessage
+
+    with SessionLocal() as db:
+        raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2-replay").one()
+        state = db.query(MessageProcessingState).filter_by(raw_message_id=raw.id).one()
+        state.status = "pending"
+        state.lease_expires_at = None
+        db.commit()
+
+    r2 = client.post("/admin/process/phase2-extractions", headers={"x-admin-token": "secret-admin"})
+    assert r2.status_code == 200
+    assert calls["count"] == 1
+
+    with SessionLocal() as db:
+        raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2-replay").one()
+        extraction = db.query(Extraction).filter_by(raw_message_id=raw.id).one()
+        assert extraction.metadata_json["replay_reused"] is True
+        assert extraction.metadata_json["canonical_payload_unchanged"] is False
+
+
+def test_phase2_force_reprocess_runs_model_but_keeps_stable_fields_on_same_payload(monkeypatch, client: TestClient):
+    from app.services import extraction_llm_client
+
+    calls = {"count": 0}
+
+    def fake_extract(self, prompt_text: str):
+        calls["count"] += 1
+        return extraction_llm_client.LlmResponse(
+            extractor_name="extract-and-score-openai-v1",
+            used_openai=True,
+            model_name="gpt-4o-mini",
+            openai_response_id=f"resp_force_{calls['count']}",
+            latency_ms=13,
+            retries=0,
+            raw_text='{"topic":"central_banks","entities":{"countries":["U.S."],"orgs":["ECB"],"people":[],"tickers":["EUR"]},"affected_countries_first_order":["usa"],"market_stats":[{"label":"move","value":0.5,"unit":"%","context":"EUR"}],"sentiment":"neutral","confidence":0.9,"impact_score":55,"is_breaking":false,"breaking_window":"none","event_time":"2025-01-01T00:00:00","source_claimed":"ECB","summary_1_sentence":"ECB says policy may shift.","keywords":["ECB","EUR"],"event_fingerprint":"candidate"}',
+        )
+
+    monkeypatch.setattr(extraction_llm_client.OpenAiExtractionClient, "extract", fake_extract)
+
+    from app.db import SessionLocal
+    from app.models import Extraction, MessageProcessingState, RawMessage
+
+    with SessionLocal() as db:
+        raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2-replay").one()
+        extraction_before = db.query(Extraction).filter_by(raw_message_id=raw.id).one()
+        old_hash = extraction_before.canonical_payload_hash
+        old_impact = extraction_before.impact_score
+        state = db.query(MessageProcessingState).filter_by(raw_message_id=raw.id).one()
+        state.status = "pending"
+        state.lease_expires_at = None
+        db.commit()
+
+    r = client.post("/admin/process/phase2-extractions?force_reprocess=true", headers={"x-admin-token": "secret-admin"})
+    assert r.status_code == 200
+    assert calls["count"] >= 1
+
+    with SessionLocal() as db:
+        raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2-replay").one()
+        extraction_after = db.query(Extraction).filter_by(raw_message_id=raw.id).one()
+        assert extraction_after.canonical_payload_hash == old_hash
+        assert extraction_after.impact_score == old_impact
+        assert extraction_after.metadata_json["canonical_payload_unchanged"] is True
 
 
 def test_phase2_validation_failure_marks_state_failed(monkeypatch, client: TestClient):
@@ -289,14 +386,17 @@ def test_phase2_disabled_raises_error(client: TestClient):
 
 
 def test_extractions_indexes_exist(client: TestClient):
-    from app.db import engine
+    from app.db import SessionLocal
 
-    index_names = {idx["name"] for idx in inspect(engine).get_indexes("extractions")}
-    assert "idx_extractions_topic_event_time" in index_names
-    assert "idx_extractions_topic_event_time_impact" in index_names
+    with SessionLocal() as db:
+        bind = db.get_bind()
+        index_names = {idx["name"] for idx in inspect(bind).get_indexes("extractions")}
+        assert "idx_extractions_topic_event_time" in index_names
+        assert "idx_extractions_topic_event_time_impact" in index_names
+        assert "idx_extractions_content_reuse_lookup" in index_names
 
-    table_names = set(inspect(engine).get_table_names())
-    assert "enrichment_candidates" in table_names
+        table_names = set(inspect(bind).get_table_names())
+        assert "enrichment_candidates" in table_names
 
 
 

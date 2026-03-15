@@ -53,6 +53,9 @@ def _recent_overview(limit: int) -> None:
         "impact",
         "conf",
         "breaking",
+        "replay_key",
+        "payload_hash",
+        "event_fp_v2",
         "priority",
         "triage",
         "state",
@@ -70,6 +73,9 @@ def _recent_overview(limit: int) -> None:
                 Extraction.impact_score,
                 Extraction.confidence,
                 Extraction.is_breaking,
+                Extraction.replay_identity_key,
+                Extraction.canonical_payload_hash,
+                Extraction.event_identity_fingerprint_v2,
                 RoutingDecision.publish_priority,
                 RoutingDecision.triage_action,
                 MessageProcessingState.status,
@@ -109,6 +115,11 @@ def _detail(raw_message_id: int) -> None:
                 Extraction.is_breaking,
                 Extraction.breaking_window,
                 Extraction.event_fingerprint,
+                Extraction.event_identity_fingerprint_v2,
+                Extraction.normalized_text_hash,
+                Extraction.replay_identity_key,
+                Extraction.canonical_payload_hash,
+                Extraction.claim_hash,
                 Extraction.payload_json,
                 Extraction.canonical_payload_json,
                 RoutingDecision.publish_priority,
@@ -152,6 +163,11 @@ def _detail(raw_message_id: int) -> None:
             is_breaking,
             breaking_window,
             extraction_fingerprint,
+            extraction_fingerprint_v2,
+            normalized_text_hash,
+            replay_identity_key,
+            canonical_payload_hash,
+            claim_hash,
             payload_json,
             canonical_payload_json,
             publish_priority,
@@ -187,6 +203,11 @@ def _detail(raw_message_id: int) -> None:
             f"breaking={_fmt(is_breaking)} window={_fmt(breaking_window)}"
         )
         print(f"  extraction_event_fingerprint={_fmt(extraction_fingerprint, max_len=500)}")
+        print(f"  extraction_event_fingerprint_v2={_fmt(extraction_fingerprint_v2, max_len=500)}")
+        print(f"  normalized_text_hash={_fmt(normalized_text_hash)}")
+        print(f"  replay_identity_key={_fmt(replay_identity_key)}")
+        print(f"  canonical_payload_hash={_fmt(canonical_payload_hash)}")
+        print(f"  claim_hash={_fmt(claim_hash)}")
         print(f"  payload_json={_fmt(payload_json, max_len=1500)}")
         print(f"  canonical_payload_json={_fmt(canonical_payload_json, max_len=1500)}")
         print()

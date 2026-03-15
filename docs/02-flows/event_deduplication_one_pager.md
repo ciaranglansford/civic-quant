@@ -24,9 +24,9 @@ Summary of the old model: the AI was effectively the source of truth for hard ev
 
 ### 1) Backend is now the source of truth for hard identity
 
-The backend now builds the authoritative fingerprint after canonicalization from stable structured fields, in a fixed order, with fixed placeholders, then hashes it.
+The backend now builds the authoritative fingerprint after canonicalization from a narrow, backend-owned identity tuple, then hashes it.
 
-- Fingerprint versioning was added (`v1`) from day one.
+- Fingerprint versioning is explicit (`v2` current).
 - The AI-provided fingerprint is no longer authoritative for matching.
 
 ### 2) Better audit visibility
@@ -57,15 +57,19 @@ Instead, it skips strict fingerprint matching and relies on contextual matching 
 2. The AI returns structured fields (topic, entities, summary, timing, etc.).
 3. Validation accepts missing/null/malformed AI fingerprint candidates without failing identity logic.
 4. Canonicalization normalizes fields (countries, entities, tickers, keywords, source text, summary safety rules).
-5. Backend computes the authoritative fingerprint (`v1`) from canonicalized fields when identity is sufficient.
+5. Backend computes the authoritative fingerprint (`v2`) from canonicalized fields when identity is sufficient.
 6. Extraction is saved with:
    - raw payload,
    - canonical payload,
    - AI fingerprint candidate (if any),
    - backend fingerprint metadata (value/version/canonical input).
 7. Dedup decision:
-   - If authoritative hard fingerprint exists: try strict match first (fingerprint + time window).
-   - If not found, or if no hard fingerprint exists: use contextual soft matching.
+   - If authoritative hard fingerprint exists: strict match by identity fingerprint.
+   - If no hard fingerprint exists: use contextual soft matching.
+8. Conflict policy for same identity fingerprint:
+   - same claim hash: no-op update
+   - different claim hash with compatible action/time: update existing event
+   - materially conflicting action/time: mark review-required and suppress promotion
 8. Event is created or updated, and message-to-event link is stored.
 
 ## What this means for product outcomes

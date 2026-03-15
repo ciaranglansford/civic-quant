@@ -3,22 +3,23 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 
 def test_selector_handles_pending_failed_and_expired_in_progress():
     db_path = "./test_civicquant_phase2_services.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-    os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
-
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-
-    from app.db import SessionLocal, init_db
+    from app.db import Base
     from app.models import MessageProcessingState, RawMessage
     from app.services.phase2_processing import get_eligible_messages_for_extraction
 
-    init_db()
+    from app import models  # noqa: F401
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
 
     with SessionLocal() as db:
         now = datetime.utcnow()

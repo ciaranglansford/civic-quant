@@ -20,6 +20,7 @@ from .types import DigestWindow
 
 
 logger = logging.getLogger("civicquant.digest")
+DIGEST_MIN_IMPACT_EXCLUSIVE = 25.0
 
 
 def _freeze_window(now_utc: datetime, window_hours: int) -> DigestWindow:
@@ -108,7 +109,7 @@ def run_digest(
             db,
             window.start_utc,
             window.end_utc,
-            min_impact_exclusive=30.0,
+            min_impact_exclusive=DIGEST_MIN_IMPACT_EXCLUSIVE,
             destination=destination,
         )
         if not events:

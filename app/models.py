@@ -84,6 +84,19 @@ class Extraction(Base):
         UniqueConstraint("raw_message_id", name="uq_extraction_raw_message"),
         Index("idx_extractions_topic_event_time", "topic", "event_time"),
         Index("idx_extractions_topic_event_time_impact", "topic", "event_time", "impact_score"),
+        Index("idx_extractions_replay_identity_key", "replay_identity_key"),
+        Index("idx_extractions_canonical_payload_hash", "canonical_payload_hash"),
+        Index("idx_extractions_claim_hash", "claim_hash"),
+        Index("idx_extractions_event_identity_fp_v2", "event_identity_fingerprint_v2"),
+        Index(
+            "idx_extractions_content_reuse_lookup",
+            "normalized_text_hash",
+            "extractor_name",
+            "prompt_version",
+            "schema_version",
+            "canonicalizer_version",
+            "created_at",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -101,6 +114,12 @@ class Extraction(Base):
     is_breaking = Column(Boolean, nullable=True)
     breaking_window = Column(Text, nullable=True)
     event_fingerprint = Column(Text, nullable=True, index=True)
+    event_identity_fingerprint_v2 = Column(String(512), nullable=True, index=True)
+    normalized_text_hash = Column(String(64), nullable=True, index=True)
+    replay_identity_key = Column(String(64), nullable=True, index=True)
+    canonicalizer_version = Column(String(32), nullable=True)
+    canonical_payload_hash = Column(String(64), nullable=True, index=True)
+    claim_hash = Column(String(64), nullable=True, index=True)
     prompt_version = Column(String(64), nullable=True)
     processing_run_id = Column(String(64), nullable=True)
     llm_raw_response = Column(Text, nullable=True)
@@ -115,15 +134,28 @@ class Extraction(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_identity_fingerprint_v2",
+            name="uq_events_identity_fp_v2",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     event_fingerprint = Column(String(512), nullable=False, index=True)
+    event_identity_fingerprint_v2 = Column(String(512), nullable=True, index=True)
     topic = Column(String(64), nullable=True)
     summary_1_sentence = Column(Text, nullable=True)
     impact_score = Column(Float, nullable=True)
     is_breaking = Column(Boolean, nullable=True)
     breaking_window = Column(String(16), nullable=True)
     event_time = Column(DateTime, nullable=True, index=True)
+    event_time_bucket = Column(String(16), nullable=True, index=True)
+    action_class = Column(String(64), nullable=True)
+    canonical_payload_hash = Column(String(64), nullable=True, index=True)
+    claim_hash = Column(String(64), nullable=True, index=True)
+    review_required = Column(Boolean, nullable=False, default=False, index=True)
+    review_reason = Column(String(128), nullable=True)
     last_updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     is_published_telegram = Column(Boolean, nullable=False, default=False, index=True)
     is_published_twitter = Column(Boolean, nullable=False, default=False, index=True)
@@ -163,6 +195,9 @@ class EventMessage(Base):
 
 class RoutingDecision(Base):
     __tablename__ = "routing_decisions"
+    __table_args__ = (
+        UniqueConstraint("raw_message_id", name="uq_routing_decision_raw"),
+    )
 
     id = Column(Integer, primary_key=True)
     raw_message_id = Column(

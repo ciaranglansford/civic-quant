@@ -34,6 +34,14 @@ def _get_event_id_for_raw(db: Session, raw_message_id: int) -> int | None:
 def store_routing_decision(db: Session, raw_message_id: int, decision: RoutingDecisionData) -> int:
     existing = db.query(RoutingDecision).filter(RoutingDecision.raw_message_id == raw_message_id).one_or_none()
     if existing is not None:
+        existing.store_to = decision.store_to
+        existing.publish_priority = decision.publish_priority
+        existing.requires_evidence = decision.requires_evidence
+        existing.event_action = decision.event_action
+        existing.triage_action = decision.triage_action
+        existing.triage_rules = decision.triage_rules
+        existing.flags = decision.flags
+        db.flush()
         return existing.id
 
     row = RoutingDecision(
