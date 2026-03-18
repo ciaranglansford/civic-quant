@@ -21,6 +21,25 @@ Important truth-model rule:
 
 `Ingestion -> Extraction (LLM) -> Event Storage -> Digest Selection (deterministic) -> Digest Synthesis (LLM) -> Rendering -> Publishing`
 
+## Internal Module Layout
+
+This repository is a modular monolith with one FastAPI app and context-owned modules.
+
+- `app/routers/*`: thin HTTP adapters only
+- `app/workflows/phase2_pipeline.py`: phase2 sequencing, retries, locks, and state transitions
+- `app/contexts/ingest/*`: ingest envelope mapping + normalization + raw persistence
+- `app/contexts/extraction/*`: extraction client, prompt rendering, validation, canonicalization, reuse contracts
+- `app/contexts/triage/*`: impact calibration, triage rules, routing decisions, relatedness logic
+- `app/contexts/events/*`: event matching/upsert and event-message linking
+- `app/contexts/entities/*`: entity mention indexing/query
+- `app/contexts/enrichment/*`: enrichment candidate selection + provider seam contracts
+- `app/contexts/feed/*`: canonical feed query behavior
+- `app/digest/*`: canonical digest/report semantics, artifacts, synthesis, and destination adapters
+
+Transitional shims intentionally retained in this pass:
+- `app/services/digest_*`
+- `app/services/telegram_publisher.py`
+
 ### Stage-by-stage
 
 1. Ingestion
@@ -28,7 +47,7 @@ Important truth-model rule:
 - Backend normalizes text and writes immutable raw rows (`raw_messages`).
 
 2. Extraction (LLM)
-- `app/services/phase2_processing.py` calls the extraction client.
+- `app/workflows/phase2_pipeline.py` calls the extraction client.
 - LLM returns strict JSON, then deterministic validation/canonicalization runs.
 - Structured outputs are stored in `extractions`.
 
@@ -182,3 +201,4 @@ python -m app.jobs.run_digest
 - Docs index: `docs/README.md`
 - New digest technical deep dive: `docs/digest_pipeline.md`
 - Existing digest architecture notes: `docs/03-architecture/digest_canonical_pipeline.md`
+

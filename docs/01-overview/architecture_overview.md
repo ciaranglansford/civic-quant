@@ -1,87 +1,69 @@
-## Architecture Overview – Civicquant Intelligence Pipeline
+# Architecture Overview - Civicquant Intelligence Pipeline
 
-### Purpose
+## Purpose
 
-Provide a concise, LLM-friendly overview of the Civicquant Intelligence Pipeline architecture for Phase 1 MVP.
+Provide a concise implementation-truth overview of the current backend architecture.
 
-### Scope
+## Runtime Shape
 
-- Covers: components, responsibilities, data stores, and external integrations.
-- Focuses on Phase 1 MVP capabilities.
+- One backend repository.
+- One FastAPI app entrypoint (`app.main`).
+- One shared relational database.
+- Background work executed by jobs/workflows, not inline request handlers.
 
-### Components
+## Current Ownership Map
 
-- **Telegram Listener (MTProto user client)**
-  - Technology: Python + Telethon.
-  - Responsibility: Listen to one external Telegram channel and POST messages to the backend ingest endpoint.
+- `app/routers/*`
+  - HTTP adapters only (`/ingest/*`, `/admin/*`, `/api/feed/*`).
+- `app/workflows/phase2_pipeline.py`
+  - Cross-context orchestration for selection, retries, leases, and run-state transitions.
+- `app/contexts/ingest/*`
+  - Raw source capture and idempotent raw message persistence.
+- `app/contexts/extraction/*`
+  - Prompt rendering, LLM client calls, strict schema validation, canonicalization, replay/content reuse logic.
+- `app/contexts/triage/*`
+  - Deterministic impact calibration, triage actioning, routing, and relatedness checks.
+- `app/contexts/events/*`
+  - Event matching/upsert and event-message relationship management.
+- `app/contexts/entities/*`
+  - Entity mention indexing/query helpers.
+- `app/contexts/enrichment/*`
+  - Enrichment candidate selection and provider seam contracts.
+- `app/contexts/feed/*`
+  - Feed endpoint query behavior and cursor semantics.
+- `app/digest/*`
+  - Canonical reporting/digest semantics, synthesis, artifact identity, and destination publication adapters.
 
-- **Backend API (FastAPI)**
-  - Technology: Python + FastAPI.
-  - Responsibility: Accept ingest requests, normalize text, run extraction and routing, perform event dedup/upsert, and persist data.
+## Transitional Compatibility
 
-- **Extraction Service (ExtractionAgent)**
-  - Technology: Python service (stubbed logic in Phase 1).
-  - Responsibility: Convert normalized text into structured extraction JSON using `llm_extraction_schema`.
+- Only digest/report shims are retained in `app/services/`:
+  - `digest_builder.py`
+  - `digest_query.py`
+  - `digest_runner.py`
+  - `telegram_publisher.py`
+- These shims are thin re-export/delegation wrappers with explicit removal TODOs.
 
-- **Routing + Rules Engine**
-  - Technology: Python module with config-driven rules.
-  - Responsibility: Apply hard routing rules to extraction outputs, producing `routing_decision` objects.
-
-- **Dedup + Event Manager**
-  - Technology: Python module.
-  - Responsibility: Match messages to existing events using `event_fingerprint` and time windows; update or create canonical events and link messages.
-
-- **Storage Layer (Postgres)**
-  - Technology: Postgres with SQLAlchemy ORM.
-  - Responsibility: Store raw messages, extractions, events, routing decisions, and published posts.
-
-- **Publisher (Digest Generator + Telegram Bot)**
-  - Technology: Python + Telegram Bot API.
-  - Responsibility: Query events over 4-hour windows, generate digests, and send them to VIP Telegram chat.
-
-### High-Level Data Stores
-
-- **Postgres tables (Phase 1)**
-  - `raw_messages` – immutable ingested messages.
-  - `extractions` – per-message extraction JSON and model metadata.
-  - `events` – canonical events that aggregate related messages.
-  - `event_messages` – join table linking messages to events.
-  - `routing_decisions` – per-message routing outcomes.
-  - `published_posts` – records of digests (and future posts) with content hashes.
-
-### Non-Functional Requirements (Summary)
-
-- **Accuracy over speed**: Prioritize accurate, auditable outcomes.
-- **Latency**: Target ≤ 30 seconds end-to-end for ingest to processed state.
-- **Idempotency**: No duplicate raw messages for same Telegram IDs; deterministic event dedup.
-- **Safety and brand**:
-  - No trading advice or prescriptive language.
-  - Clear labeling of uncorroborated items (future phase for evidence).
-
-### Architecture Diagram
+## Data Flow (Condensed)
 
 ```mermaid
 flowchart LR
-  tgChannel["Telegram Channel (External)"]
-  listener["Telegram Listener (Telethon)"]
-  api["Backend API (FastAPI)"]
-  extractor["ExtractionAgent (Stub)"]
-  router["Routing Rules Engine"]
-  eventMgr["Event Manager"]
-  db["Postgres DB"]
-  publisher["Digest Publisher (Telegram Bot)"]
-  vipChat["VIP Telegram Chat"]
-
-  tgChannel --> listener
-  listener -->|"POST /ingest/telegram"| api
-  api --> extractor
-  extractor --> router
-  router --> eventMgr
-  api --> db
-  extractor --> db
-  eventMgr --> db
-  router --> db
-  publisher -->|"Bot API"| vipChat
-  db --> publisher
+  tg["Telegram Source"] --> listener["listener.telegram_listener"]
+  listener -->|"POST /ingest/telegram"| api["FastAPI Routers"]
+  api --> ingest["contexts.ingest"]
+  ingest --> db[(DB: raw_messages)]
+  jobs["jobs.run_phase2_extraction"] --> wf["workflows.phase2_pipeline"]
+  wf --> extraction["contexts.extraction"]
+  wf --> triage["contexts.triage"]
+  wf --> events["contexts.events"]
+  wf --> entities["contexts.entities"]
+  wf --> enrich["contexts.enrichment"]
+  extraction --> db
+  triage --> db
+  events --> db
+  entities --> db
+  enrich --> db
+  digestJob["jobs.run_digest"] --> digest["app.digest (canonical)"]
+  digest --> db
+  digest --> vip["VIP Telegram (adapter)"]
+  api --> feed["contexts.feed"] --> db
 ```
-

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from ..schemas import SourceIngestPayload, TelegramIngestPayload
+from ...schemas import SourceIngestPayload, TelegramIngestPayload
 
 
 @dataclass(frozen=True)
@@ -50,3 +50,4 @@ def envelope_from_telegram_payload(payload: TelegramIngestPayload) -> SourceMess
         forwarded_from_if_available=payload.forwarded_from_if_available,
     )
     return envelope_from_source_payload(source_payload)
+

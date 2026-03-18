@@ -4,7 +4,7 @@ import logging
 
 from ..config import get_settings
 from ..db import SessionLocal, init_db
-from ..services.digest_runner import run_digest
+from ..digest import run_digest
 
 
 logging.basicConfig(level=logging.INFO)
@@ -20,4 +20,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

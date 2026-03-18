@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 PROMPT_VERSION = "extraction_agent_v3"
-_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "prompts" / f"{PROMPT_VERSION}.txt"
+_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.txt"
 
 
 @dataclass(frozen=True)
@@ -36,4 +36,5 @@ def render_extraction_prompt(
         raise ValueError(f"template placeholders not replaced: {missing}")
 
     return RenderedPrompt(prompt_version=PROMPT_VERSION, prompt_text=rendered)
+
 

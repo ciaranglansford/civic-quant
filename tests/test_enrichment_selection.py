@@ -8,8 +8,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.schemas import ExtractionEntities, ExtractionJson
-from app.services.enrichment_selection import select_and_store_enrichment_candidate
-from app.services.impact_scoring import ImpactCalibrationResult
+from app.contexts.enrichment.enrichment_selection import select_and_store_enrichment_candidate
+from app.contexts.triage.impact_scoring import ImpactCalibrationResult
 
 
 def _session_factory():
@@ -209,3 +209,4 @@ def test_enrichment_selection_blocks_duplicate_cluster_and_triage_markers():
             assert any(code.startswith("enrichment:novelty_block") for code in row.reason_codes)
     finally:
         engine.dispose()
+

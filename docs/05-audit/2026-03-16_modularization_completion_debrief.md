@@ -1,5 +1,18 @@
 # 2026-03-16 Modularization Completion Debrief
 
+## Current Status (2026-03-18)
+
+This is a historical implementation log for an earlier modularization pass.
+Path ownership references under `app/services/*` may now be stale after the
+context-first refactor.
+
+Current canonical ownership:
+- `app/contexts/*` for bounded contexts
+- `app/workflows/*` for orchestration
+- `app/digest/*` for canonical digest/reporting semantics
+
+See `docs/05-audit/refactor_audit_2026-03-18.md` for the latest refactor state.
+
 ## Purpose
 
 Debrief the architectural implementation pass focused on reducing coupling, clarifying module ownership, and preparing the backend for additional ingestion adapters without changing core processing behavior.

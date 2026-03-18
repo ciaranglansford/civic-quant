@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..schemas import FeedEventsResponse, Topic
-from ..services.feed_query import list_feed_events
+from ..contexts.feed.feed_query import list_feed_events
 
 
 router = APIRouter(prefix="/api/feed", tags=["feed"])
@@ -22,3 +22,4 @@ def get_feed_events(
         return list_feed_events(db=db, limit=limit, cursor=cursor, topic=topic)
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid cursor")
+

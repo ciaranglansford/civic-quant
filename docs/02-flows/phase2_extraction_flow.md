@@ -94,7 +94,7 @@ Phase2 extraction sits at the Stage 3-5 boundary:
 
 Reprocess commands:
 - preserve raw: `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages`
-- full reset: `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema`
+- full reset: `python -m app.jobs.reset_dev_schema` (destructive; current script has no runtime confirmation guard)
 
 ## Claim Semantics and Uncertainty Preservation
 
@@ -116,9 +116,9 @@ Reprocess commands:
 ```mermaid
 sequenceDiagram
   participant J as Phase2 Job/Admin Trigger
-  participant P as phase2_processing
+  participant P as workflows.phase2_pipeline
   participant O as OpenAI Responses API
-  participant V as extraction_validation
+  participant V as contexts.extraction.extraction_validation
   participant DB as Postgres
 
   J->>P: process_phase2_batch()
@@ -136,5 +136,6 @@ sequenceDiagram
   P->>DB: upsert entity_mentions
   P->>DB: update processing state
 ```
+
 
 

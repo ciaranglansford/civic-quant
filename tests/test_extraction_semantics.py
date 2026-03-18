@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.services.extraction_validation import parse_and_validate_extraction
-from app.services.prompt_templates import render_extraction_prompt
+from app.contexts.extraction.extraction_validation import parse_and_validate_extraction
+from app.contexts.extraction.prompt_templates import render_extraction_prompt
 
 
 def test_prompt_version_uses_v2_and_includes_claim_semantics():
@@ -46,5 +46,6 @@ def test_validation_allows_missing_or_null_llm_fingerprint_candidate():
     )
     parsed = parse_and_validate_extraction(raw_json)
     assert parsed["event_fingerprint"] == ""
+
 
 

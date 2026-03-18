@@ -11,8 +11,8 @@ from telethon import TelegramClient
 from ..config import get_settings
 from ..db import SessionLocal, init_db
 from ..schemas import TelegramIngestPayload
-from ..services.ingest_pipeline import process_ingest_payload
-from ..services.normalization import normalize_message_text
+from ..contexts.ingest.ingest_pipeline import process_ingest_payload
+from ..contexts.ingest.normalization import normalize_message_text
 
 
 logging.basicConfig(level=logging.INFO)
@@ -162,3 +162,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

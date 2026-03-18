@@ -20,6 +20,11 @@ Typical topology:
 | Digest job | Stage 8 | Build/publish event-level reports |
 | Enrichment workflow (future) | Stage 7 | Selective external validation/corroboration |
 
+Ownership note:
+- Phase2 orchestration lives in `app/workflows/phase2_pipeline.py`.
+- Business logic is context-owned in `app/contexts/*`.
+- Digest/reporting remains canonical in `app/digest/*`.
+
 ## Scheduling Responsibility Split
 
 ### Extraction cadence
@@ -72,3 +77,4 @@ Typical topology:
 ## Caveat
 
 No standardized infrastructure-as-code or migration framework is fully established in this repository yet. Operational control currently relies on documented jobs and scripts.
+

@@ -37,7 +37,7 @@ def _extraction(event_time: datetime) -> ExtractionJson:
 
 
 def test_entity_indexing_insert_dedup_and_time_window_query():
-    from app.services.entity_indexing import index_entities_for_extraction, query_entity_mentions
+    from app.contexts.entities.entity_indexing import index_entities_for_extraction, query_entity_mentions
 
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
@@ -96,3 +96,4 @@ def test_entity_indexing_insert_dedup_and_time_window_query():
             assert len(in_window) == 1
     finally:
         engine.dispose()
+

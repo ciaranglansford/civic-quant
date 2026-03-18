@@ -4,8 +4,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from ..models import EntityMention
-from ..schemas import ExtractionJson
+from ...models import EntityMention
+from ...schemas import ExtractionJson
 
 
 def _upsert_entity_mention(
@@ -120,3 +120,4 @@ def query_entity_mentions(
     if end_time is not None:
         q = q.filter(EntityMention.event_time.is_not(None), EntityMention.event_time <= end_time)
     return q.order_by(EntityMention.event_time.desc().nullslast(), EntityMention.id.desc()).all()
+

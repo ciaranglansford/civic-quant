@@ -27,6 +27,14 @@ Transitional service shims remain in:
 - `app/services/digest_builder.py`
 - `app/services/digest_runner.py`
 
+Additional transitional shim:
+- `app/services/telegram_publisher.py`
+
+Shim policy in this pass:
+- thin delegation/re-export only
+- no business logic
+- explicit removal TODOs are tracked in shim module docstrings
+
 ## Canonical Semantics
 
 Canonical digest semantics now include:
@@ -91,3 +99,4 @@ Digest output remains a reported-claims briefing:
 ## Operational Note
 
 The repository currently has no migration framework. Schema changes (for example `digest_artifacts.input_hash`) require local schema reset/recreate workflows in dev environments.
+

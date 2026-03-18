@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ..models import RoutingDecision
-from ..schemas import RoutingDecisionData
+from ...models import RoutingDecision
+from ...schemas import RoutingDecisionData
 
 
 def upsert_routing_decision(db: Session, raw_message_id: int, decision: RoutingDecisionData) -> int:
@@ -32,3 +32,4 @@ def upsert_routing_decision(db: Session, raw_message_id: int, decision: RoutingD
     db.add(row)
     db.flush()
     return row.id
+

@@ -1,5 +1,5 @@
 from app.schemas import ExtractionEntities, ExtractionJson
-from app.services.triage_engine import CandidateEventContext, TriageContext, compute_triage_action
+from app.contexts.triage.triage_engine import CandidateEventContext, TriageContext, compute_triage_action
 
 
 def _extraction(
@@ -161,3 +161,4 @@ def test_soft_related_new_event_with_prior_low_delta_is_downgraded():
     assert "triage:burst_cap_update" in second.reason_codes
     assert third.triage_action == "monitor"
     assert "triage:burst_cap_monitor" in third.reason_codes
+

@@ -36,7 +36,7 @@ For operational execution details, see:
 - Responsible module/job:
   - `listener/telegram_listener.py`
   - `app/routers/ingest.py`
-  - `app/services/ingest_pipeline.py`
+  - `app/contexts/ingest/ingest_pipeline.py`
 - Local commands:
   - `python -m listener.telegram_listener`
   - `uvicorn app.main:app --reload`
@@ -46,7 +46,7 @@ For operational execution details, see:
 
 ### Stage 2: Structural Normalization
 - Responsible module/job:
-  - `app/services/normalization.py`
+  - `app/contexts/ingest/normalization.py`
 - Local command:
   - runs as part of ingest request path
 - Observable outputs:
@@ -55,7 +55,7 @@ For operational execution details, see:
 ### Stage 3: AI Claim Extraction
 - Responsible module/job:
   - `app/jobs/run_phase2_extraction.py`
-  - `app/services/phase2_processing.py`
+  - `app/workflows/phase2_pipeline.py`
 - Local commands:
   - `python -m app.jobs.run_phase2_extraction`
   - `python -m app.jobs.test_openai_extract`
@@ -65,10 +65,10 @@ For operational execution details, see:
 
 ### Stage 4: Deterministic Post-Processing / Triage
 - Responsible module/job:
-  - `app/services/routing_engine.py`
-  - `app/services/triage_engine.py`
-  - `app/services/canonicalization.py`
-  - `app/services/ingest_pipeline.py` (routing persistence)
+  - `app/contexts/triage/routing_engine.py`
+  - `app/contexts/triage/triage_engine.py`
+  - `app/contexts/triage/routing_decisions.py`
+  - `app/contexts/extraction/canonicalization.py`
 - Local command:
   - executed inside phase2 batch
 - Observable outputs:
@@ -77,7 +77,7 @@ For operational execution details, see:
 
 ### Stage 5: Event Clustering
 - Responsible module/job:
-  - `app/services/event_manager.py`
+  - `app/contexts/events/event_manager.py`
 - Local command:
   - executed inside phase2 batch
 - Observable outputs:
@@ -94,11 +94,11 @@ For operational execution details, see:
 
 ### Stage 7: Deferred Enrichment / Validation
 - Responsible module/job:
-  - not implemented in current code path
+  - `app/contexts/enrichment/enrichment_selection.py` (candidate selection in current flow)
 - Local command:
-  - N/A
+  - executed inside phase2 batch
 - Observable outputs:
-  - N/A (future)
+  - DB: `enrichment_candidates`
 
 ### Stage 8: Scheduled Reporting
 - Responsible module/job:
@@ -179,5 +179,6 @@ For operational execution details, see:
 - Selective external evidence pipelines and reliability scoring.
 - Additional event-level reporting channels.
 - Expanded normalization/canonicalization rules for wire feed variants.
+
 
 

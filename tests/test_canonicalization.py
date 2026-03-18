@@ -1,4 +1,4 @@
-from app.services.canonicalization import canonicalize_extraction
+from app.contexts.extraction.canonicalization import canonicalize_extraction
 
 
 def _base_payload() -> dict:
@@ -253,3 +253,4 @@ def test_summary_with_stated_or_warned_is_treated_as_already_attributed():
 
     assert canonical.summary_1_sentence.startswith("Trump stated")
     assert "summary_high_risk_attribution_rewrite" not in rules
+

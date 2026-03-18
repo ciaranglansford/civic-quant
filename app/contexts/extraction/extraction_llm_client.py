@@ -115,3 +115,4 @@ class OpenAiExtractionClient:
             except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, ProviderError) as e:
                 last_error = e
         raise ProviderError(f"openai request failed after retries: {type(last_error).__name__}")
+

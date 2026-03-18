@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..services.phase2_processing import process_phase2_batch
+from ..workflows.phase2_pipeline import process_phase2_batch
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -31,3 +31,4 @@ def trigger_phase2_extractions(
         "failed": summary.failed,
         "skipped": summary.skipped,
     }
+

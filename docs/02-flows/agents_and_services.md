@@ -1,10 +1,15 @@
-## Agents and Services
+## Contexts and Workflows
 
 ### Purpose
 
 Define responsibilities in a wire-bulletin intelligence pipeline and distinguish implemented vs target/future roles.
 
-## Current Implementation Services
+Current ownership model:
+- bounded contexts under `app/contexts/*`
+- orchestration under `app/workflows/*`
+- canonical digest/report semantics under `app/digest/*`
+
+## Current Implementation Contexts
 
 ### Bulletin Ingest Service
 - Responsibility: receive listener payloads and persist immutable raw observations idempotently.
@@ -50,6 +55,11 @@ Define responsibilities in a wire-bulletin intelligence pipeline and distinguish
   - synthesis output is schema/semantic validated,
   - deterministic fallback is used when synthesis is disabled or invalid.
 
+### Feed Query Context
+- Responsibility: serve canonical event feed retrieval (`/api/feed/events`) with deterministic ordering and cursor semantics.
+- Inputs: topic/filter/cursor query params.
+- Outputs: `FeedEventsResponse`.
+
 ## Target-State Additions
 
 ### Deterministic Post-Processing Layer
@@ -70,3 +80,4 @@ Define responsibilities in a wire-bulletin intelligence pipeline and distinguish
 
 ### Reporting Expansion Agent (Future)
 - Additional report formats/channels beyond digest output.
+

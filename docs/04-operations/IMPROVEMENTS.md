@@ -32,7 +32,7 @@ Actionable backlog focused on readability, maintainability, correctness, and DX.
 - **Evidence:** Router catches broad `Exception` and returns generic 500, which obscures error classes (`app/routers/ingest.py`).
 - **Proposed change:** Introduce typed domain exceptions (validation/domain/conflict/external failure) and map to explicit HTTP status codes and structured error responses.
 - **Acceptance criteria:**
-  - Exception classes documented and used in services.
+  - Exception classes documented and used in contexts/workflows.
   - Router maps them deterministically.
   - Tests assert status codes and error payload shape.
 - **Risk/impact notes:** Low runtime risk; improves operability/debugging.
@@ -40,7 +40,7 @@ Actionable backlog focused on readability, maintainability, correctness, and DX.
 ## 4) Strengthen type boundaries and interfaces between services
 - **Type:** readability
 - **Priority:** P1
-- **Evidence:** Some service functions return loosely typed `dict[str, object]` (`process_ingest_payload` in `app/services/ingest_pipeline.py`).
+- **Evidence:** Some service functions return loosely typed `dict[str, object]` (`process_ingest_payload` in `app/contexts/ingest/ingest_pipeline.py`).
 - **Proposed change:** Replace dict returns with typed Pydantic/dataclass result objects.
 - **Acceptance criteria:**
   - No `dict[str, object]` for core pipeline outputs.
@@ -70,7 +70,7 @@ Actionable backlog focused on readability, maintainability, correctness, and DX.
 ## 7) Expand extraction determinism tests
 - **Type:** testing
 - **Priority:** P1
-- **Evidence:** Existing tests are e2e-style and do not directly assert extraction fingerprint/topic heuristics (`tests/test_e2e_backend.py`, `app/services/extraction_agent.py`).
+- **Evidence:** Existing tests are e2e-style and do not directly assert extraction fingerprint/topic heuristics (`tests/test_e2e_backend.py`, `app/contexts/extraction/extraction_agent.py`).
 - **Proposed change:** Add unit tests for extraction edge cases (empty text, ticker/number parsing, topic hints, fingerprint stability).
 - **Acceptance criteria:**
   - Dedicated extraction test module with representative fixtures.
@@ -106,3 +106,4 @@ Actionable backlog focused on readability, maintainability, correctness, and DX.
   - Conventions documented in repo.
   - Lint checks for agreed rules in CI/local tooling.
 - **Risk/impact notes:** Process change more than code risk; improves long-term clarity.
+

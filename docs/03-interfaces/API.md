@@ -79,6 +79,11 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 - `python -m app.jobs.clear_all_but_raw_messages`
 - `python -m app.jobs.adopt_stability_contracts`
 
+Runtime ownership note:
+- phase2 orchestration entrypoint is `app/workflows/phase2_pipeline.py`
+- business rules are context-owned in `app/contexts/*`
+- digest/report semantics are canonical in `app/digest/*`
+
 ### Listener Runtime
 
 - `python -m listener.telegram_listener`
@@ -88,3 +93,4 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 
 - No public external-validation endpoint yet.
 - No broad query API family beyond `GET /api/feed/events`.
+

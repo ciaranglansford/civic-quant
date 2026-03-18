@@ -35,7 +35,7 @@ def test_phase2_reuses_extraction_across_distinct_raw_messages(monkeypatch):
     from app.db import Base, get_db
     from app.main import create_app
     from app.models import Extraction, RawMessage
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
     import app.db as db_module
 
     engine = create_engine(
@@ -122,3 +122,4 @@ def test_phase2_reuses_extraction_across_distinct_raw_messages(monkeypatch):
         ):
             os.environ.pop(key, None)
         get_settings.cache_clear()
+

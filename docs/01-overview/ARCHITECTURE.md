@@ -33,6 +33,22 @@ Define the pipeline architecture for a Telegram wire-bulletin intelligence syste
 - `events` and `event_messages`: evolving event clusters and links
 - `published_posts`: reporting audit trail
 
+### Current Module Ownership (Implemented)
+
+- `app/routers/*`: thin HTTP adapters.
+- `app/workflows/phase2_pipeline.py`: orchestration for phase2 sequencing/state.
+- `app/contexts/ingest/*`: source envelope + normalization + raw persistence.
+- `app/contexts/extraction/*`: prompting/client/validation/canonicalization/reuse.
+- `app/contexts/triage/*`: calibration + triage + routing decisions.
+- `app/contexts/events/*`: event identity, matching, and upsert logic.
+- `app/contexts/entities/*`: entity indexing/query helpers.
+- `app/contexts/enrichment/*`: enrichment candidate selection and provider seam.
+- `app/contexts/feed/*`: feed query endpoints backing logic.
+- `app/digest/*`: canonical digest/report semantics + synthesis + artifact/publish flow.
+
+Digest transition note:
+- `app/services/digest_*` and `app/services/telegram_publisher.py` are temporary compatibility shims only.
+
 ## Target-State Pipeline
 
 ### Stage 1: Raw Ingest
@@ -93,3 +109,4 @@ Define the pipeline architecture for a Telegram wire-bulletin intelligence syste
 8. Validation/enrichment happens later and selectively.
 9. Scheduled reporting consumes structured event data, not raw messages.
 10. LLM can shape digest wording/semantic merge but cannot control publication state transitions.
+

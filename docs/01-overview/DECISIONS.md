@@ -3,14 +3,14 @@
 ## decision-1-fastapi-for-thin-http-layer
 **What:** FastAPI is used as a thin ingress/API layer.
 
-**Evidence:** `app.main` creates app and includes router; core business logic lives in service modules.
+**Evidence:** `app.main` creates app and includes routers; core business logic lives in `app/contexts/*` and orchestration in `app/workflows/*`.
 
 **Why (inferred):** Keep request parsing/validation and HTTP concerns separate from pipeline logic.
 
-## decision-2-service-module-separation
-**What:** Pipeline logic is split into focused modules: normalization, extraction, routing, event upsert, digest query/build/publish.
+## decision-2-context-first-module-separation
+**What:** Pipeline logic is split into bounded contexts plus explicit workflow orchestration.
 
-**Evidence:** Separate files under `app/services/` with clear single-purpose function sets.
+**Evidence:** Context packages under `app/contexts/*` and orchestration in `app/workflows/phase2_pipeline.py`.
 
 **Why (inferred):** Improves testability and allows replacing components (for example extraction implementation) without changing router layer.
 
@@ -36,9 +36,9 @@
 **Why (inferred):** Supports auditability and deterministic digest generation from persisted events.
 
 ## decision-6-content-hash-dedup-for-digest-publication
-**What:** Digest publishing uses SHA-256 content hash + lookback window to avoid duplicate outbound messages.
+**What:** Digest publishing uses deterministic artifact identity (`input_hash` + `canonical_hash`) and per-destination status dedupe.
 
-**Evidence:** `digest_runner._content_hash` and `has_recent_duplicate` before publish.
+**Evidence:** `app/digest/artifact_store.py` and destination dedupe checks in `app/digest/dedupe.py`/`app/digest/orchestrator.py`.
 
 **Why (inferred):** Prevent repetitive publishing in recurring schedule windows.
 
@@ -48,3 +48,4 @@
 **Evidence:** Named loggers and event-specific log lines in ingest, event manager, listener, digest modules.
 
 **Why (inferred):** Minimal operational footprint for MVP without metrics/tracing stack.
+

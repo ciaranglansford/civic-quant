@@ -4,7 +4,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from ..schemas import ExtractionEntities, MarketStat
+from ...schemas import ExtractionEntities, MarketStat
 
 
 class StrictExtractionJson(BaseModel):
@@ -61,10 +61,11 @@ def parse_and_validate_extraction(raw_text: str) -> dict:
     else:
         extraction_payload["event_fingerprint"] = ""
 
-    from ..schemas import ExtractionJson
+    from ...schemas import ExtractionJson
 
     try:
         model = ExtractionJson.model_validate(extraction_payload)
     except ValidationError as e:
         raise ExtractionValidationError(f"schema_error: {e.errors()[0]['msg']}") from e
     return model.model_dump(mode="json")
+

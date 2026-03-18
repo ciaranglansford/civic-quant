@@ -7,9 +7,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from ..config import get_settings
-from ..services.extraction_llm_client import OpenAiExtractionClient
-from ..services.extraction_validation import parse_and_validate_extraction
-from ..services.prompt_templates import render_extraction_prompt
+from ..contexts.extraction.extraction_llm_client import OpenAiExtractionClient
+from ..contexts.extraction.extraction_validation import parse_and_validate_extraction
+from ..contexts.extraction.prompt_templates import render_extraction_prompt
 
 
 logging.basicConfig(level=logging.INFO)
@@ -56,3 +56,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

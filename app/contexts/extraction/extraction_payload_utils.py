@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..models import Extraction
-from .triage_engine import classify_source, summary_tags
+from ...models import Extraction
+from ..triage.triage_engine import classify_source, summary_tags
 
 
 def payload_for_extraction_row(row: Extraction) -> dict:
@@ -58,3 +58,4 @@ def source_class_from_payload(payload: dict) -> str:
     source = payload.get("source_claimed") if isinstance(payload, dict) else None
     summary = payload.get("summary_1_sentence") if isinstance(payload, dict) else None
     return classify_source(source if isinstance(source, str) else None, summary if isinstance(summary, str) else "")
+

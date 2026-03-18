@@ -6,11 +6,11 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
-from ..models import Event, EventMessage, Extraction
-from ..schemas import ExtractionJson
-from .canonicalization import derive_action_class, event_time_bucket
+from ...models import Event, EventMessage, Extraction
+from ...schemas import ExtractionJson
+from ..extraction.canonicalization import derive_action_class, event_time_bucket
 from .event_windows import get_event_time_window
-from .extraction_payload_utils import (
+from ..extraction.extraction_payload_utils import (
     entity_signature_from_payload,
     keywords_from_payload,
     source_from_payload,
@@ -369,4 +369,5 @@ def upsert_event(
         action="update",
         material_update=bool(changes),
     )
+
 

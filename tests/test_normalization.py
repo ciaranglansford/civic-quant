@@ -1,4 +1,4 @@
-from app.services.normalization import normalize_message_text
+from app.contexts.ingest.normalization import normalize_message_text
 
 
 def test_normalization_cleans_wire_markers_and_suffixes():
@@ -13,3 +13,4 @@ def test_normalization_is_deterministic_and_preserves_uncertainty_language():
     second = normalize_message_text(raw)
     assert first == second
     assert "NEITHER IRAN NOR THE U.S. HAVE CONFIRMED." in first
+

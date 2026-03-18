@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.schemas import ExtractionEntities, ExtractionJson
-from app.services.canonicalization import (
+from app.contexts.extraction.canonicalization import (
     compute_canonical_payload_hash,
     compute_claim_hash,
     derive_action_class,
@@ -127,7 +127,7 @@ def test_event_upsert_links_repetitive_and_updates_summary():
     if os.path.exists(db_path):
         os.remove(db_path)
     from app.models import Event, EventMessage
-    from app.services.event_manager import upsert_event
+    from app.contexts.events.event_manager import upsert_event
 
     SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
@@ -182,7 +182,7 @@ def test_event_upsert_soft_merges_related_context_within_window():
     if os.path.exists(db_path):
         os.remove(db_path)
     from app.models import EventMessage, Event
-    from app.services.event_manager import upsert_event
+    from app.contexts.events.event_manager import upsert_event
 
     SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
@@ -251,7 +251,7 @@ def test_event_upsert_does_not_soft_merge_different_contexts():
     if os.path.exists(db_path):
         os.remove(db_path)
     from app.models import Event
-    from app.services.event_manager import upsert_event
+    from app.contexts.events.event_manager import upsert_event
 
     SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
@@ -317,7 +317,7 @@ def test_event_upsert_without_hard_fingerprint_uses_soft_matching_only():
     if os.path.exists(db_path):
         os.remove(db_path)
     from app.models import Event, EventMessage
-    from app.services.event_manager import upsert_event
+    from app.contexts.events.event_manager import upsert_event
 
     SessionLocal = _session_local_for_path(db_path)
     now = datetime.utcnow()
@@ -377,3 +377,4 @@ def test_event_upsert_without_hard_fingerprint_uses_soft_matching_only():
         assert event.event_fingerprint == f"soft:{raw1.id}"
         links = db.query(EventMessage).filter_by(event_id=r1.event_id).all()
         assert len(links) == 2
+

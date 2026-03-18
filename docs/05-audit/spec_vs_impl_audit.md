@@ -1,5 +1,18 @@
 # Spec vs Implementation Audit
 
+## Current Status (2026-03-18)
+
+This document predates the context-first module refactor. Some references to
+`app/services/*` now map to:
+- `app/contexts/*` for domain logic
+- `app/workflows/*` for orchestration
+- `app/digest/*` for canonical reporting/digest ownership
+
+For current implementation truth, prioritize:
+- `docs/01-overview/ARCHITECTURE.md`
+- `docs/02-flows/DATA_FLOW.md`
+- `docs/05-audit/refactor_audit_2026-03-18.md`
+
 ## Purpose
 
 Track documentation consistency against current runtime behavior and the refined target-state wire-bulletin architecture.

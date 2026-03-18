@@ -27,7 +27,7 @@ python -m app.jobs.run_phase2_extraction
 | `run_digest` | Builds and publishes digest output from recent events and records publication. | `python -m app.jobs.run_digest` |
 | `test_openai_extract` | Runs a single extraction smoke test against OpenAI + schema validation (no DB writes). | `python -m app.jobs.test_openai_extract` |
 | `clear_all_but_raw_messages` | Deletes derived pipeline tables while preserving `raw_messages`. | `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages` |
-| `reset_dev_schema` | Drops and recreates all tables from SQLAlchemy models (destructive). | `CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema` |
+| `reset_dev_schema` | Drops and recreates all tables from SQLAlchemy models (destructive). | `python -m app.jobs.reset_dev_schema` |
 | `adopt_stability_contracts` | Backfills replay/identity hashes, audits duplicate event identities, and optionally merges exact duplicates / applies unique indexes. | `python -m app.jobs.adopt_stability_contracts` |
 
 ## Before/After by Job
@@ -53,9 +53,9 @@ python -m app.jobs.run_phase2_extraction
   - `events` has recent rows inside `VIP_DIGEST_HOURS` window.
   - Telegram bot publish env vars are configured.
 - After:
-  - Digest is sent (unless duplicate by content hash/window).
-  - `published_posts` gets a new row on publish.
-  - If duplicate content is detected, job exits with skip behavior and no new publish row.
+  - Canonical digest artifact is persisted before publish attempt.
+  - Destination publish uses artifact identity (`input_hash`/`canonical_hash`) and per-destination status.
+  - `published_posts` is updated with publish/skip/retry outcomes.
 
 ### `test_openai_extract`
 
@@ -80,10 +80,10 @@ python -m app.jobs.run_phase2_extraction
 
 - Before:
   - You need a full schema reset in dev/test.
-  - `CONFIRM_RESET_DEV_SCHEMA=true` is set.
 - After:
   - All tables are dropped and recreated from current models.
   - All data is removed, including `raw_messages`.
+  - Current status: no runtime confirmation guard is enforced in this script.
 
 ### `adopt_stability_contracts`
 
@@ -102,3 +102,4 @@ python -m app.jobs.run_phase2_extraction
 3. Run `run_digest`.
 4. Use `clear_all_but_raw_messages` when iterating derived logic.
 5. Use `reset_dev_schema` only for full destructive resets.
+

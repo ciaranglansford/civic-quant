@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..config_routing import DEFAULT_ROUTING_CONFIG, RoutingConfig
-from ..schemas import ExtractionJson, RoutingDecisionData
+from ...config_routing import DEFAULT_ROUTING_CONFIG, RoutingConfig
+from ...schemas import ExtractionJson, RoutingDecisionData
 
 
 def _priority_from_impact(impact_score: float, cfg: RoutingConfig) -> str:
@@ -93,4 +93,5 @@ def route_extraction(
         flags=flags,
         rules_fired=rules_fired,
     )
+
 

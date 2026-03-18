@@ -62,7 +62,8 @@ This system ingests headline/ticker bulletins that are often:
 - Maintain queryable dataset by topic/ticker/country/breaking/time.
 
 ### Stage 7 - Deferred Enrichment / Validation
-- Apply external validation selectively and later.
+- Current status: deterministic enrichment candidate selection is implemented.
+- External-provider enrichment execution remains a later stage.
 
 ### Stage 8 - Scheduled Reporting
 - Build reporting from event-level structured data, not raw messages.
@@ -72,3 +73,4 @@ This system ingests headline/ticker bulletins that are often:
 - `confidence`: extraction certainty.
 - `impact_score`: claim significance if taken at face value.
 - Neither metric implies factual confirmation.
+

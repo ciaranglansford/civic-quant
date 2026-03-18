@@ -23,6 +23,11 @@ Input characteristics:
 - Deterministic routing and event upsert create/update canonical event clusters.
 - Digest job performs deterministic selection/state management plus optional LLM synthesis to publish structured briefings.
 
+Implementation ownership:
+- bounded contexts in `app/contexts/*`
+- cross-context orchestration in `app/workflows/*`
+- canonical digest/report semantics in `app/digest/*`
+
 ## Target-State Pipeline
 
 1. Raw ingest
@@ -47,3 +52,4 @@ Input characteristics:
 3. `../03-interfaces/schemas_and_storage_model.md`
 4. `../04-operations/operations_and_scheduling.md`
 5. `../05-audit/spec_vs_impl_audit.md`
+

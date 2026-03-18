@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services.extraction_llm_client import OpenAiExtractionClient, ProviderError
+from app.contexts.extraction.extraction_llm_client import OpenAiExtractionClient, ProviderError
 
 
 class _FakeHttpResponse:
@@ -84,3 +84,4 @@ def test_openai_responses_extract_retries_and_raises(monkeypatch):
     )
     with pytest.raises(ProviderError, match="openai request failed after retries"):
         client.extract("hello")
+

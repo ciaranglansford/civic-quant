@@ -13,7 +13,7 @@ def test_selector_handles_pending_failed_and_expired_in_progress():
         os.remove(db_path)
     from app.db import Base
     from app.models import MessageProcessingState, RawMessage
-    from app.services.phase2_processing import get_eligible_messages_for_extraction
+    from app.workflows.phase2_pipeline import get_eligible_messages_for_extraction
 
     from app import models  # noqa: F401
 
@@ -44,3 +44,4 @@ def test_selector_handles_pending_failed_and_expired_in_progress():
         eligible = get_eligible_messages_for_extraction(db, batch_size=10)
         ids = [r.telegram_message_id for r in eligible if r.source_channel_id == "b"]
         assert ids == ["11", "12", "13"]
+

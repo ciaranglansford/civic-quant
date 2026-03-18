@@ -5,9 +5,8 @@ import logging
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import EventMessage, MessageProcessingState, RawMessage
-from ..schemas import RoutingDecisionData, SourceIngestPayload, TelegramIngestPayload
-from .routing_decisions import upsert_routing_decision
+from ...models import EventMessage, MessageProcessingState, RawMessage
+from ...schemas import SourceIngestPayload, TelegramIngestPayload
 from .source_ingest import (
     SourceMessageEnvelope,
     envelope_from_source_payload,
@@ -32,11 +31,6 @@ def _get_existing_raw(db: Session, source_stream_id: str, source_message_id: str
 def _get_event_id_for_raw(db: Session, raw_message_id: int) -> int | None:
     link = db.query(EventMessage).filter(EventMessage.raw_message_id == raw_message_id).first()
     return link.event_id if link else None
-
-
-def store_routing_decision(db: Session, raw_message_id: int, decision: RoutingDecisionData) -> int:
-    # Compatibility shim; authoritative implementation moved to routing_decisions.py.
-    return upsert_routing_decision(db=db, raw_message_id=raw_message_id, decision=decision)
 
 
 def process_ingest_message(
@@ -110,3 +104,4 @@ def process_source_ingest_payload(
 ) -> dict[str, object]:
     envelope = envelope_from_source_payload(payload)
     return process_ingest_message(db=db, payload=envelope, normalized_text=normalized_text)
+

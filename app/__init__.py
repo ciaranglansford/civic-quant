@@ -1,7 +1,10 @@
 """
 Civicquant Intelligence Pipeline - FastAPI app package.
 
-Phase 1 MVP: ingest Telegram messages, store raw + extraction,
-apply basic routing and dedup, and support digest generation.
+Current architecture: context-first modular monolith.
+- Context logic lives under `app.contexts.*`
+- Cross-context orchestration lives under `app.workflows.*`
+- Canonical digest/reporting semantics live under `app.digest.*`
 """
+
 

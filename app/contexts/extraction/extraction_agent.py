@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from ..schemas import ExtractionEntities, ExtractionJson, MarketStat, Topic
+from ...schemas import ExtractionEntities, ExtractionJson, MarketStat, Topic
 
 
 _TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
@@ -111,4 +111,5 @@ class ExtractionAgent:
             keywords=keywords,
             event_fingerprint=event_fingerprint,
         )
+
 

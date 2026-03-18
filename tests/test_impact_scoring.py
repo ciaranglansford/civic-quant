@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.schemas import ExtractionEntities, ExtractionJson, MarketStat
-from app.services.impact_scoring import calibrate_impact, distribution_metrics
+from app.contexts.triage.impact_scoring import calibrate_impact, distribution_metrics
 
 
 def _extraction(
@@ -100,3 +100,4 @@ def test_distribution_metrics_include_percentiles_and_thresholds():
     assert metrics["pct_gt_40"] > 0
     assert metrics["pct_gt_60"] > 0
     assert metrics["pct_gte_80"] > 0
+

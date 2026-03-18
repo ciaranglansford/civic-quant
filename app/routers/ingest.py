@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..logging_utils import new_request_id
 from ..schemas import IngestResponse, SourceIngestPayload, TelegramIngestPayload
-from ..services.normalization import normalize_message_text
-from ..services.ingest_pipeline import process_ingest_payload, process_source_ingest_payload
+from ..contexts.ingest.normalization import normalize_message_text
+from ..contexts.ingest.ingest_pipeline import process_ingest_payload, process_source_ingest_payload
 
 
 logger = logging.getLogger("civicquant.ingest")
@@ -100,4 +100,5 @@ def ingest_source(
             normalized_text=normalized_text,
         ),
     )
+
 

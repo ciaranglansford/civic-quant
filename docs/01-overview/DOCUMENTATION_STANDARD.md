@@ -7,7 +7,7 @@ This file defines required documentation behavior for this repository.
 ## Folder Responsibilities
 
 - `01-overview`: intent, architecture framing, glossary, and documentation standards.
-- `02-flows`: runtime flow of data and control between jobs/services/DB/external APIs.
+- `02-flows`: runtime flow of data and control between jobs/workflows/contexts/DB/external APIs.
 - `03-interfaces`: API contracts, schemas, and storage contracts used by code.
 - `04-operations`: runtime procedures, job commands, scheduling, and troubleshooting.
 - `05-audit`: verification of spec vs implementation and change-risk audits.
@@ -29,3 +29,4 @@ A feature is incomplete if code is merged without required documentation updates
 - interface/schema docs,
 - operations docs,
 - audit docs.
+

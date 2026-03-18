@@ -10,3 +10,4 @@ def get_event_time_window(topic: str, is_breaking: bool) -> timedelta:
         return timedelta(hours=6)
     return timedelta(hours=24)
 
+

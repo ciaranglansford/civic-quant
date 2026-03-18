@@ -30,3 +30,4 @@ def normalize_message_text(raw_text: str) -> str:
     text = _WS_RE.sub(" ", text).strip()
     return text
 
+

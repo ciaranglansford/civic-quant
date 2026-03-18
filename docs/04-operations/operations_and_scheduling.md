@@ -32,6 +32,7 @@ Digest composition details:
 - To adopt the digest schema changes on existing local/dev databases, reset/recreate schema:
   - `python -m app.jobs.reset_dev_schema`
 - This reset job already exists and is destructive (`drop_all` + `create_all`).
+- Current status: `reset_dev_schema` does not enforce a runtime env-confirmation guard; treat it as a dangerous manual command.
 
 ## Developer Run Sequence (Local)
 
@@ -187,5 +188,6 @@ Run after phase2 batches to detect prompt drift or calibration regressions.
 1. Confirm extraction job logs show `extract-and-score-openai-v1`.
 2. Confirm phase2 env values (`PHASE2_EXTRACTION_ENABLED`, API key presence).
 3. Inspect latest `extractions` rows for `extractor_name`, `payload_json`, and `metadata_json`.
+
 
 

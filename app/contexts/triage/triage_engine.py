@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from ..schemas import ExtractionJson
+from ...schemas import ExtractionJson
 
 
 @dataclass(frozen=True)
@@ -298,3 +298,4 @@ def compute_triage_action(
         action = "monitor"
 
     return TriageDecision(triage_action=action, reason_codes=reasons)
+

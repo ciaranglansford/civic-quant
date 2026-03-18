@@ -3,6 +3,15 @@
 This `/docs` directory is organized as a staged, retrieval-friendly knowledge base for a Telegram wire-bulletin intelligence pipeline.
 For canonical digest ownership, synthesis contracts, adapter boundaries, and local schema adoption/reset guidance, start with [`digest_pipeline.md`](./digest_pipeline.md), [`03-architecture/digest_canonical_pipeline.md`](./03-architecture/digest_canonical_pipeline.md), and [`04-operations/operations_and_scheduling.md`](./04-operations/operations_and_scheduling.md).
 
+Current implementation ownership follows a context-first modular monolith:
+- `app/contexts/*` for bounded contexts
+- `app/workflows/*` for cross-context orchestration
+- `app/digest/*` as canonical reporting/digest implementation
+
+Historical records:
+- Files in [`05-audit/`](./05-audit/) and [`feed-api/`](./feed-api/) may describe earlier repo layouts.
+- Those documents now include "Current status" notes where path/ownership references have drifted.
+
 ## Structure
 
 - [`01-overview/`](./01-overview/)
@@ -67,3 +76,5 @@ For canonical digest ownership, synthesis contracts, adapter boundaries, and loc
 ### 05-audit
 - [`spec_vs_impl_audit.md`](./05-audit/spec_vs_impl_audit.md)
 - [`2026-03-16_modularization_completion_debrief.md`](./05-audit/2026-03-16_modularization_completion_debrief.md)
+- [`refactor_audit_2026-03-18.md`](./05-audit/refactor_audit_2026-03-18.md)
+

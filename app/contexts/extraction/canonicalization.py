@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ..schemas import ExtractionJson
+from ...schemas import ExtractionJson
 
 
 _WS_RE = re.compile(r"\s+")
@@ -456,6 +456,7 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
             rules.append("event_fingerprint_llm_candidate_ignored")
 
     return ExtractionJson.model_validate(canonical_payload), rules, fingerprint
+
 
 
 

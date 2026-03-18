@@ -17,7 +17,7 @@ from ..models import (
     RoutingDecision,
 )
 from ..db import SessionLocal, engine
-from ..services.canonicalization import (
+from ..contexts.extraction.canonicalization import (
     CANONICALIZER_VERSION,
     canonicalize_extraction,
     compute_canonical_payload_hash,
@@ -25,7 +25,7 @@ from ..services.canonicalization import (
     derive_action_class,
     event_time_bucket,
 )
-from ..services.prompt_templates import PROMPT_VERSION
+from ..contexts.extraction.prompt_templates import PROMPT_VERSION
 
 
 logging.basicConfig(level=logging.INFO)
@@ -385,3 +385,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

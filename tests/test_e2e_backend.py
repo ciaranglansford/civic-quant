@@ -163,7 +163,7 @@ def test_phase2_manual_trigger_requires_auth(client: TestClient):
 def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestClient):
     client.post("/ingest/telegram", json=_payload("c1", "m2", "ECB signals policy shift; EUR rises 0.5%"))
 
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     def fake_extract(self, prompt_text: str):
         return extraction_llm_client.LlmResponse(
@@ -241,7 +241,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
 def test_phase2_replay_reuses_existing_extraction_and_skips_model(monkeypatch, client: TestClient):
     client.post("/ingest/telegram", json=_payload("c1", "m2-replay", "BOE signals policy shift; GBP rises 0.5%"))
 
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     calls = {"count": 0}
 
@@ -284,7 +284,7 @@ def test_phase2_replay_reuses_existing_extraction_and_skips_model(monkeypatch, c
 
 
 def test_phase2_force_reprocess_runs_model_but_keeps_stable_fields_on_same_payload(monkeypatch, client: TestClient):
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     calls = {"count": 0}
 
@@ -330,7 +330,7 @@ def test_phase2_force_reprocess_runs_model_but_keeps_stable_fields_on_same_paylo
 def test_phase2_validation_failure_marks_state_failed(monkeypatch, client: TestClient):
     client.post("/ingest/telegram", json=_payload("c1", "m3", "random text"))
 
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     def bad_extract(self, prompt_text: str):
         return extraction_llm_client.LlmResponse(
@@ -359,7 +359,7 @@ def test_phase2_validation_failure_marks_state_failed(monkeypatch, client: TestC
 def test_phase2_local_incident_is_downgraded_and_raw_payload_preserved(monkeypatch, client: TestClient):
     client.post("/ingest/telegram", json=_payload("c1", "m4", "AUSTIN, TX: POLICE REPORT MULTIPLE INJURIES"))
 
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     def extract_local_incident(self, prompt_text: str):
         return extraction_llm_client.LlmResponse(
@@ -398,7 +398,7 @@ def test_phase2_burst_downgrades_same_source_keyword_overlap(monkeypatch, client
     client.post("/ingest/telegram", json=_payload("c1", "m6", "RUSSIAN FM: HORMUZ STOPPAGE MAY IMBALANCE OIL AND GAS"))
     client.post("/ingest/telegram", json=_payload("c1", "m7", "RUSSIAN FM SAYS HORMUZ NAVIGATION IMPACTS OIL GAS MARKETS"))
 
-    from app.services import extraction_llm_client
+    from app.contexts.extraction import extraction_llm_client
 
     payloads = [
         '{"topic":"commodities","entities":{"countries":["Russia"],"orgs":[],"people":[],"tickers":[]},"affected_countries_first_order":["Russia"],"market_stats":[],"sentiment":"negative","confidence":0.8,"impact_score":75,"is_breaking":true,"breaking_window":"15m","event_time":"2025-01-01T00:00:00","source_claimed":"Market News Feed","summary_1_sentence":"Russian Foreign Ministry warns Hormuz navigation stoppage may imbalance oil and gas markets.","keywords":["Strait of Hormuz","oil","gas","Russia"],"event_fingerprint":"RUSSIAN_FOREIGN_MINISTRY_STRAIT_OF_HORMUZ_IMPACT"}',
@@ -442,7 +442,7 @@ def test_phase2_burst_downgrades_same_source_keyword_overlap(monkeypatch, client
 def test_phase2_disabled_raises_error(client: TestClient):
     from app.config import Settings
     from app.db import SessionLocal
-    from app.services.phase2_processing import process_phase2_batch
+    from app.workflows.phase2_pipeline import process_phase2_batch
 
     with SessionLocal() as db:
         with pytest.raises(ValueError, match="PHASE2_EXTRACTION_ENABLED must be true"):
@@ -468,6 +468,7 @@ def test_extractions_indexes_exist(client: TestClient):
 
         table_names = set(inspect(bind).get_table_names())
         assert "enrichment_candidates" in table_names
+
 
 
 

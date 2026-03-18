@@ -8,8 +8,8 @@ from typing import get_args
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
-from ..models import Event
-from ..schemas import FeedEventItem, FeedEventsResponse, Topic
+from ...models import Event
+from ...schemas import FeedEventItem, FeedEventsResponse, Topic
 
 TOPIC_VALUES = tuple(get_args(Topic))
 _CURSOR_VERSION = 1
@@ -117,4 +117,5 @@ def list_feed_events(
         next_cursor = _encode_cursor(event_time=last_row.event_time, event_id=last_row.id)
 
     return FeedEventsResponse(items=items, next_cursor=next_cursor)
+
 

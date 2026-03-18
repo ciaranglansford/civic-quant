@@ -1,5 +1,16 @@
 # Feed API Key Decisions
 
+## Current Status (2026-03-18)
+
+This document is a historical feed-api planning/execution artifact.
+Some module paths and ownership references may be stale after the context-first
+refactor (`app/contexts/*`, `app/workflows/*`, `app/digest/*`).
+
+For implementation-truth references, use:
+- `docs/01-overview/ARCHITECTURE.md`
+- `docs/02-flows/DATA_FLOW.md`
+- `docs/05-audit/refactor_audit_2026-03-18.md`
+
 ## D1: Canonical Source Of Truth
 - Decision: feed reads from `events` only.
 - Why: `events` is the backend's canonical, deduplicated event layer; ingest/raw tables are pipeline internals.

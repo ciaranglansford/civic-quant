@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from ..config import get_settings
 from ..db import SessionLocal, init_db
-from ..services.phase2_processing import process_phase2_batch
+from ..workflows.phase2_pipeline import process_phase2_batch
 
 
 logging.basicConfig(level=logging.INFO)
@@ -37,3 +37,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -2,9 +2,14 @@
 
 This folder contains operational scripts you run as Python modules from the repo root.
 
+Ownership note:
+- Jobs are entrypoints.
+- Phase2 orchestration is implemented in `app/workflows/phase2_pipeline.py`.
+- Digest/report semantics remain canonical in `app/digest/`.
+
 ## How to run
 
-1. Open a shell in `C:\Users\ciara\civicquant-telegram`.
+1. Open a shell in the repository root.
 2. Ensure dependencies are installed: `pip install -r requirements.txt`.
 3. Ensure your `.env` is configured.
 4. Run jobs with `python -m app.jobs.<job_module>`.
@@ -110,4 +115,5 @@ python -m app.jobs.adopt_stability_contracts --merge-exact --apply-unique-indexe
 
 - If phase2 jobs fail immediately, confirm `PHASE2_EXTRACTION_ENABLED=true` and `OPENAI_API_KEY` are set.
 - If DB-related jobs fail, confirm `DATABASE_URL` points to the expected database.
-- If job imports fail, run from repo root (`C:\Users\ciara\civicquant-telegram`).
+- If job imports fail, run from the repository root.
+
