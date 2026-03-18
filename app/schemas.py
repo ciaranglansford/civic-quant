@@ -139,3 +139,119 @@ class FeedEventsResponse(BaseModel):
     items: list[FeedEventItem]
     next_cursor: str | None
 
+
+class ThemeRunTriggerRequest(BaseModel):
+    theme_key: str
+    cadence: Literal["daily", "weekly"] = "daily"
+    window_start_utc: datetime | None = None
+    window_end_utc: datetime | None = None
+    dry_run: bool = False
+    emit_brief: bool = True
+
+
+class ThemeBatchRunResponse(BaseModel):
+    run_id: int
+    run_key: str
+    theme_key: str
+    cadence: Literal["daily", "weekly"]
+    window_start_utc: datetime
+    window_end_utc: datetime
+    status: str
+    evidence_count: int
+    assessments_created: int
+    cards_created: int
+    emitted_cards: int
+    suppressed_cards: int
+    brief_status: str
+    error_message: str | None = None
+
+
+class ThemeDefinitionResponse(BaseModel):
+    key: str
+    title: str
+    supported_cadences: list[str]
+    lenses: list[str]
+    allowed_transmission_patterns: list[str]
+    relevant_event_archetypes: list[str]
+
+
+class ThemeRunItemResponse(BaseModel):
+    id: int
+    run_key: str
+    theme_key: str
+    cadence: str
+    window_start_utc: datetime
+    window_end_utc: datetime
+    status: str
+    selected_evidence_count: int
+    assessment_count: int
+    thesis_card_count: int
+    suppressed_count: int
+    error_message: str | None
+    created_at: datetime
+    started_at: datetime
+    completed_at: datetime | None
+
+
+class ThemeAssessmentResponse(BaseModel):
+    id: int
+    stable_key: str
+    theme_key: str
+    cadence: str
+    window_start_utc: datetime
+    window_end_utc: datetime
+    active_lenses: list[str]
+    active_transmission_patterns: list[str]
+    primary_lens: str | None
+    primary_transmission_pattern: str | None
+    evidence_summary: dict[str, Any]
+    top_supporting_evidence_ids: list[int]
+    top_contradictory_evidence_ids: list[int]
+    dominant_drivers: dict[str, Any]
+    transmission_narrative: dict[str, Any]
+    candidate_opportunities: list[str]
+    candidate_risks: list[str]
+    evidence_strength_score: float
+    lens_fit_score: float
+    opportunity_priority_score: float
+    confidence_score: float
+    urgency: str
+    time_horizon: str
+    invalidation_conditions: list[str]
+    status: str
+    created_at: datetime
+
+
+class ThesisCardResponse(BaseModel):
+    id: int
+    assessment_id: int
+    theme_key: str
+    cadence: str
+    title: str
+    what_happened: str
+    why_it_matters: str
+    transmission_path: str
+    opportunity_angles: list[str]
+    confidence: float
+    what_to_watch_next: str
+    invalidation_criteria: str
+    supporting_evidence_refs: list[int]
+    status: str
+    suppression_reason: str | None
+    material_update_reason: str | None
+    created_at: datetime
+
+
+class ThemeBriefResponse(BaseModel):
+    id: int
+    theme_run_id: int
+    theme_key: str
+    cadence: str
+    window_start_utc: datetime
+    window_end_utc: datetime
+    summary_text: str
+    highlights: list[str]
+    assessment_ids: list[int]
+    thesis_card_ids: list[int]
+    status: str
+    created_at: datetime

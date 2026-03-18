@@ -57,6 +57,26 @@ This API supports wire-bulletin ingestion and operational processing jobs.
   - returns event-level summaries ordered by `event_time DESC, id DESC`,
   - supports deterministic cursor pagination.
 
+### Internal Theme Batch Admin Endpoints (`/admin/*`)
+
+These are internal/debug endpoints by convention in this pass (no auth/user system added yet):
+
+- `POST /admin/theme/run`
+  - triggers one deterministic theme batch run
+  - request includes `theme_key`, optional cadence/window/dry-run/emit-brief
+- `GET /admin/themes`
+  - lists available theme definitions
+- `GET /admin/theme-runs`
+  - lists latest persisted runs
+- `GET /admin/theme-runs/{run_id}`
+  - returns one run record
+- `GET /admin/theme-runs/{run_id}/assessments`
+  - returns assessments for run
+- `GET /admin/theme-runs/{run_id}/thesis-cards`
+  - returns cards for run
+- `GET /admin/theme-runs/{run_id}/brief`
+  - returns brief artifact for run
+
 ## Request/Response Contract Notes
 
 ### Ingest Request Semantics

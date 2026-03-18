@@ -89,6 +89,12 @@ Reporting (`digest_artifacts`, `published_posts`):
 - artifact identity uses `input_hash` plus `canonical_hash`
 - destination outcomes are tracked in `published_posts.status`
 
+Theme batch (`theme_runs`, `event_theme_evidence`, `theme_opportunity_assessments`, `thesis_cards`, `theme_brief_artifacts`):
+- additive batch-only thematic thesis persistence
+- event-time layer stores deterministic match evidence only
+- batch-time layer stores assessments/cards/brief artifacts with explicit status transitions
+- thesis cards are derived from assessments, not canonical reasoning source
+
 ## Reprocessability
 
 - Raw layer is preserved.

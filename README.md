@@ -6,12 +6,14 @@ The system combines:
 - deterministic ingestion, storage, filtering, and publication state management
 - LLM extraction of structured claims
 - LLM-assisted digest synthesis with deterministic validation and fallback
+- deterministic batch thematic thesis generation (POC) over scheduled windows
 
 ## What The System Produces
 
 The pipeline converts short bulletin text into:
 - structured event records (`events`) representing reported claims
 - scheduled digests that synthesize those events into a briefing format
+- scheduled thematic opportunity assessments and thesis cards (batch-only, internal POC)
 
 Important truth-model rule:
 - events and digest bullets represent reported claims, not confirmed facts
@@ -35,6 +37,9 @@ This repository is a modular monolith with one FastAPI app and context-owned mod
 - `app/contexts/enrichment/*`: enrichment candidate selection + provider seam contracts
 - `app/contexts/feed/*`: canonical feed query behavior
 - `app/digest/*`: canonical digest/report semantics, artifacts, synthesis, and destination adapters
+- `app/contexts/themes/*`: theme/lens registry, matching, evidence persistence, and bundle construction
+- `app/contexts/opportunities/*`: enrichment providers, scoring, assessments, thesis cards, and briefs
+- `app/workflows/theme_batch_pipeline.py`: batch thematic workflow coordinator
 
 Transitional shims intentionally retained in this pass:
 - `app/services/digest_*`
@@ -72,6 +77,11 @@ Transitional shims intentionally retained in this pass:
 - Artifact is persisted before any publish attempt.
 - Per-destination rows are tracked in `published_posts`.
 - Covered source event IDs are marked published after successful destination publish.
+
+8. Thematic Batch Thesis (deterministic POC)
+- Continuous flow only persists event-theme evidence matches.
+- Scheduled batch run evaluates lenses/transmission patterns over a time window.
+- Assessments, gated thesis cards, and brief artifacts are persisted.
 
 ## LLM Usage
 
@@ -141,6 +151,7 @@ Why the split exists:
 - Listener: `python -m listener.telegram_listener`
 - Extraction job: `python -m app.jobs.run_phase2_extraction`
 - Digest job: `python -m app.jobs.run_digest`
+- Theme batch job: `python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs`
 
 ## Configuration Highlights
 
@@ -188,6 +199,11 @@ python -m app.jobs.run_phase2_extraction
 5. Run digest
 ```bash
 python -m app.jobs.run_digest
+```
+
+6. Run theme batch POC
+```bash
+python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily
 ```
 
 ## Digest vs Raw Event Feed

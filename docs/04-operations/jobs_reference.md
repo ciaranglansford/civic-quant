@@ -25,10 +25,12 @@ python -m app.jobs.run_phase2_extraction
 |---|---|---|
 | `run_phase2_extraction` | Processes eligible raw messages through extraction, triage, routing, event updates, and entity indexing. | `python -m app.jobs.run_phase2_extraction` |
 | `run_digest` | Builds and publishes digest output from recent events and records publication. | `python -m app.jobs.run_digest` |
+| `run_theme_batch` | Runs one deterministic theme batch window and persists run/evidence/assessment/card/brief rows. | `python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily` |
 | `test_openai_extract` | Runs a single extraction smoke test against OpenAI + schema validation (no DB writes). | `python -m app.jobs.test_openai_extract` |
 | `clear_all_but_raw_messages` | Deletes derived pipeline tables while preserving `raw_messages`. | `CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages` |
 | `reset_dev_schema` | Drops and recreates all tables from SQLAlchemy models (destructive). | `python -m app.jobs.reset_dev_schema` |
 | `adopt_stability_contracts` | Backfills replay/identity hashes, audits duplicate event identities, and optionally merges exact duplicates / applies unique indexes. | `python -m app.jobs.adopt_stability_contracts` |
+| `adopt_theme_batch_schema` | Non-destructively ensures additive theme batch schema tables and indexes. | `python -m app.jobs.adopt_theme_batch_schema` |
 
 ## Before/After by Job
 
@@ -57,6 +59,18 @@ python -m app.jobs.run_phase2_extraction
   - Destination publish uses artifact identity (`input_hash`/`canonical_hash`) and per-destination status.
   - `published_posts` is updated with publish/skip/retry outcomes.
 
+### `run_theme_batch`
+
+- Before:
+  - Event/extraction pipeline has produced events in target window.
+  - Theme key is provided (`--theme energy_to_agri_inputs` for current POC).
+- After:
+  - `theme_runs` has one run status row.
+  - `event_theme_evidence` contains/updates deterministic evidence matches.
+  - `theme_opportunity_assessments` persists canonical internal assessments.
+  - `thesis_cards` persists emitted/suppressed/draft statuses.
+  - `theme_brief_artifacts` persists one brief row per run.
+
 ### `test_openai_extract`
 
 - Before:
@@ -72,7 +86,7 @@ python -m app.jobs.run_phase2_extraction
   - You want to reprocess from existing raw history.
   - `CONFIRM_CLEAR_NON_RAW=true` is set.
 - After:
-  - Cleared tables: `event_messages`, `published_posts`, `events`, `routing_decisions`, `extractions`, `message_processing_states`, `processing_locks`.
+  - Cleared tables: `event_messages`, `thesis_cards`, `theme_opportunity_assessments`, `theme_brief_artifacts`, `event_theme_evidence`, `theme_runs`, `published_posts`, `digest_artifacts`, `events`, `routing_decisions`, `extractions`, `message_processing_states`, `processing_locks`.
   - `raw_messages` remains unchanged.
   - On SQLite, ID sequences are reset where possible.
 

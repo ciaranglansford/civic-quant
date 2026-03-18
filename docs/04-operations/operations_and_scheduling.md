@@ -10,6 +10,7 @@ Primary local runbook for executing the wire-bulletin pipeline end-to-end and va
 - Listener (capture): `python -m listener.telegram_listener`
 - Phase2 extraction: `python -m app.jobs.run_phase2_extraction`
 - Reporting digest (canonical pipeline): `python -m app.jobs.run_digest`
+- Theme batch thesis POC: `python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily`
 
 ## Digest Pipeline Invariant
 
@@ -33,6 +34,22 @@ Digest composition details:
   - `python -m app.jobs.reset_dev_schema`
 - This reset job already exists and is destructive (`drop_all` + `create_all`).
 - Current status: `reset_dev_schema` does not enforce a runtime env-confirmation guard; treat it as a dangerous manual command.
+
+## Schema Adoption (Theme Batch Additions)
+
+- Theme batch schema is additive and non-destructive.
+- Adoption command:
+  - `python -m app.jobs.adopt_theme_batch_schema`
+- This command ensures new tables/indexes exist:
+  - `theme_runs`
+  - `event_theme_evidence`
+  - `theme_opportunity_assessments`
+  - `thesis_cards`
+  - `theme_brief_artifacts`
+- Rollback approach:
+  - disable theme batch job/admin endpoints,
+  - optionally clear/drop only theme tables,
+  - existing ingest/extraction/triage/event/digest flows remain unchanged.
 
 ## Developer Run Sequence (Local)
 
@@ -82,6 +99,7 @@ Digest composition details:
   - Stage 4: `routing_decisions`
   - Stage 5: `events`, `event_messages`
   - Stage 8: `digest_artifacts`, `published_posts`
+  - Theme batch: `theme_runs`, `event_theme_evidence`, `theme_opportunity_assessments`, `thesis_cards`, `theme_brief_artifacts`
 
 ## When to Run What
 
@@ -114,6 +132,13 @@ Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full re
 - Recommended: every 4 hours (or `VIP_DIGEST_HOURS`)
 - Example:
   - `0 */4 * * * python -m app.jobs.run_digest`
+
+### Theme Batch Cadence
+- Suggested initial cadence:
+  - daily: once per day
+  - weekly: once per week
+- Example:
+  - `0 6 * * * python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily`
 
 ### Digest Rerun / Idempotency Behavior
 - Canonical artifact is persisted before destination publish attempts.

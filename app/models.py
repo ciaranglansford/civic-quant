@@ -130,6 +130,7 @@ class Extraction(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     raw_message = relationship("RawMessage", back_populates="extraction")
+    theme_evidence = relationship("EventThemeEvidence", back_populates="extraction")
 
 
 class Event(Base):
@@ -168,6 +169,7 @@ class Event(Base):
     latest_extraction = relationship("Extraction", foreign_keys=[latest_extraction_id])
     published_posts = relationship("PublishedPost", back_populates="event")
     enrichment_candidate = relationship("EnrichmentCandidate", back_populates="event", uselist=False)
+    theme_evidence = relationship("EventThemeEvidence", back_populates="event")
 
 
 class EventMessage(Base):
@@ -315,3 +317,175 @@ class EntityMention(Base):
     is_breaking = Column(Boolean, nullable=True)
     event_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ThemeRun(Base):
+    __tablename__ = "theme_runs"
+    __table_args__ = (
+        Index(
+            "ix_theme_runs_theme_cadence_window_created",
+            "theme_key",
+            "cadence",
+            "window_start_utc",
+            "window_end_utc",
+            "created_at",
+        ),
+        Index("ix_theme_runs_theme_created", "theme_key", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    run_key = Column(String(64), nullable=False, unique=True, index=True)
+    theme_key = Column(String(128), nullable=False, index=True)
+    cadence = Column(String(16), nullable=False)
+    window_start_utc = Column(DateTime, nullable=False, index=True)
+    window_end_utc = Column(DateTime, nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="running", index=True)
+    dry_run = Column(Boolean, nullable=False, default=False)
+    emit_brief = Column(Boolean, nullable=False, default=True)
+    selected_evidence_count = Column(Integer, nullable=False, default=0)
+    assessment_count = Column(Integer, nullable=False, default=0)
+    thesis_card_count = Column(Integer, nullable=False, default=0)
+    suppressed_count = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    assessments = relationship("ThemeOpportunityAssessment", back_populates="theme_run")
+    thesis_cards = relationship("ThesisCard", back_populates="theme_run")
+    brief_artifact = relationship("ThemeBriefArtifact", back_populates="theme_run", uselist=False)
+
+
+class EventThemeEvidence(Base):
+    __tablename__ = "event_theme_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "theme_key",
+            "event_id",
+            "extraction_id",
+            name="uq_event_theme_evidence_theme_event_extraction",
+        ),
+        Index("ix_event_theme_evidence_theme_event_time_id", "theme_key", "event_time", "id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    theme_key = Column(String(128), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
+    extraction_id = Column(
+        Integer, ForeignKey("extractions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    event_time = Column(DateTime, nullable=True, index=True)
+    event_topic = Column(String(64), nullable=True, index=True)
+    impact_score = Column(Float, nullable=True)
+    calibrated_score = Column(Float, nullable=True)
+    matched_archetypes = Column(JSON, nullable=False, default=list)
+    match_reason_codes = Column(JSON, nullable=False, default=list)
+    severity_snapshot_json = Column(JSONB_COMPAT, nullable=False, default=dict)
+    entity_refs = Column(JSON, nullable=False, default=list)
+    geography_refs = Column(JSON, nullable=False, default=list)
+    metadata_json = Column(JSONB_COMPAT, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    event = relationship("Event", back_populates="theme_evidence")
+    extraction = relationship("Extraction", back_populates="theme_evidence")
+
+
+class ThemeOpportunityAssessment(Base):
+    __tablename__ = "theme_opportunity_assessments"
+    __table_args__ = (
+        UniqueConstraint("stable_key", name="uq_theme_opportunity_assessment_stable_key"),
+        Index("ix_theme_opportunity_assessment_theme_created", "theme_key", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    theme_run_id = Column(Integer, ForeignKey("theme_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    stable_key = Column(String(128), nullable=False, unique=True, index=True)
+    theme_key = Column(String(128), nullable=False, index=True)
+    cadence = Column(String(16), nullable=False)
+    window_start_utc = Column(DateTime, nullable=False, index=True)
+    window_end_utc = Column(DateTime, nullable=False, index=True)
+    active_lenses = Column(JSON, nullable=False, default=list)
+    active_transmission_patterns = Column(JSON, nullable=False, default=list)
+    primary_lens = Column(String(64), nullable=True, index=True)
+    primary_transmission_pattern = Column(String(64), nullable=True, index=True)
+    evidence_summary_json = Column(JSONB_COMPAT, nullable=False, default=dict)
+    top_supporting_evidence_ids = Column(JSON, nullable=False, default=list)
+    top_contradictory_evidence_ids = Column(JSON, nullable=False, default=list)
+    dominant_drivers = Column(JSONB_COMPAT, nullable=False, default=dict)
+    transmission_narrative_json = Column(JSONB_COMPAT, nullable=False, default=dict)
+    candidate_opportunities = Column(JSON, nullable=False, default=list)
+    candidate_risks = Column(JSON, nullable=False, default=list)
+    evidence_strength_score = Column(Float, nullable=False, default=0.0)
+    lens_fit_score = Column(Float, nullable=False, default=0.0)
+    opportunity_priority_score = Column(Float, nullable=False, default=0.0)
+    confidence_score = Column(Float, nullable=False, default=0.0)
+    urgency = Column(String(32), nullable=False, default="low")
+    time_horizon = Column(String(32), nullable=False, default="medium_term")
+    invalidation_conditions = Column(JSON, nullable=False, default=list)
+    status = Column(String(32), nullable=False, default="active", index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    theme_run = relationship("ThemeRun", back_populates="assessments")
+    thesis_cards = relationship("ThesisCard", back_populates="assessment")
+
+
+class ThesisCard(Base):
+    __tablename__ = "thesis_cards"
+    __table_args__ = (
+        Index("ix_thesis_cards_theme_status_created", "theme_key", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    theme_run_id = Column(Integer, ForeignKey("theme_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    assessment_id = Column(
+        Integer,
+        ForeignKey("theme_opportunity_assessments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    theme_key = Column(String(128), nullable=False, index=True)
+    cadence = Column(String(16), nullable=False)
+    window_start_utc = Column(DateTime, nullable=False, index=True)
+    window_end_utc = Column(DateTime, nullable=False, index=True)
+    title = Column(Text, nullable=False)
+    what_happened = Column(Text, nullable=False)
+    why_it_matters = Column(Text, nullable=False)
+    transmission_path = Column(Text, nullable=False)
+    opportunity_angles = Column(JSON, nullable=False, default=list)
+    confidence = Column(Float, nullable=False, default=0.0)
+    what_to_watch_next = Column(Text, nullable=False)
+    invalidation_criteria = Column(Text, nullable=False)
+    supporting_evidence_refs = Column(JSON, nullable=False, default=list)
+    narrative_signature = Column(String(128), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="draft_only", index=True)
+    suppression_reason = Column(Text, nullable=True)
+    material_update_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    theme_run = relationship("ThemeRun", back_populates="thesis_cards")
+    assessment = relationship("ThemeOpportunityAssessment", back_populates="thesis_cards")
+
+
+class ThemeBriefArtifact(Base):
+    __tablename__ = "theme_brief_artifacts"
+    __table_args__ = (
+        UniqueConstraint("theme_run_id", name="uq_theme_brief_artifact_run"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    theme_run_id = Column(Integer, ForeignKey("theme_runs.id", ondelete="CASCADE"), nullable=False, unique=True)
+    theme_key = Column(String(128), nullable=False, index=True)
+    cadence = Column(String(16), nullable=False)
+    window_start_utc = Column(DateTime, nullable=False, index=True)
+    window_end_utc = Column(DateTime, nullable=False, index=True)
+    summary_text = Column(Text, nullable=False)
+    highlights_json = Column(JSON, nullable=False, default=list)
+    assessment_ids_json = Column(JSON, nullable=False, default=list)
+    thesis_card_ids_json = Column(JSON, nullable=False, default=list)
+    status = Column(String(32), nullable=False, default="created")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    theme_run = relationship("ThemeRun", back_populates="brief_artifact")

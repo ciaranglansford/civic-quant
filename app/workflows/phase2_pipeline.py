@@ -15,6 +15,7 @@ from ..contexts.events.event_manager import EventUpsertResult, upsert_event
 from ..contexts.extraction.canonicalization import CANONICALIZER_VERSION
 from ..contexts.extraction.extraction_llm_client import OpenAiExtractionClient, ProviderError
 from ..contexts.extraction.extraction_validation import ExtractionValidationError
+from ..contexts.themes.evidence import persist_theme_matches_for_event
 from ..contexts.extraction.processing import (
     OPENAI_EXTRACTOR_NAME,
     materialize_extraction_for_raw_message,
@@ -25,7 +26,7 @@ from ..contexts.triage.decisioning import (
 )
 from ..contexts.triage.impact_scoring import distribution_metrics
 from ..contexts.triage.routing_decisions import upsert_routing_decision
-from ..models import MessageProcessingState, ProcessingLock, RawMessage
+from ..models import Event, MessageProcessingState, ProcessingLock, RawMessage
 
 
 logger = logging.getLogger("civicquant.phase2")
@@ -180,6 +181,13 @@ def process_phase2_batch(
                 upsert_routing_decision(db, raw.id, decision)
 
                 if event_id is not None:
+                    event_row = db.query(Event).filter_by(id=event_id).one_or_none()
+                    if event_row is not None:
+                        persist_theme_matches_for_event(
+                            db,
+                            event=event_row,
+                            extraction=processed.extraction_row,
+                        )
                     try:
                         select_and_store_enrichment_candidate(
                             db,
@@ -270,4 +278,3 @@ def process_phase2_batch(
         return summary
     finally:
         _release_lock(db, run_id)
-
