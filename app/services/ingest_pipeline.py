@@ -5,20 +5,25 @@ import logging
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-
-from ..models import EventMessage, MessageProcessingState, RawMessage, RoutingDecision
-from ..schemas import RoutingDecisionData, TelegramIngestPayload
+from ..models import EventMessage, MessageProcessingState, RawMessage
+from ..schemas import RoutingDecisionData, SourceIngestPayload, TelegramIngestPayload
+from .routing_decisions import upsert_routing_decision
+from .source_ingest import (
+    SourceMessageEnvelope,
+    envelope_from_source_payload,
+    envelope_from_telegram_payload,
+)
 
 
 logger = logging.getLogger("civicquant.pipeline")
 
 
-def _get_existing_raw(db: Session, source_channel_id: str, telegram_message_id: str) -> RawMessage | None:
+def _get_existing_raw(db: Session, source_stream_id: str, source_message_id: str) -> RawMessage | None:
     return (
         db.query(RawMessage)
         .filter(
-            RawMessage.source_channel_id == source_channel_id,
-            RawMessage.telegram_message_id == telegram_message_id,
+            RawMessage.source_channel_id == source_stream_id,
+            RawMessage.telegram_message_id == source_message_id,
         )
         .one_or_none()
     )
@@ -29,41 +34,17 @@ def _get_event_id_for_raw(db: Session, raw_message_id: int) -> int | None:
     return link.event_id if link else None
 
 
-
-
 def store_routing_decision(db: Session, raw_message_id: int, decision: RoutingDecisionData) -> int:
-    existing = db.query(RoutingDecision).filter(RoutingDecision.raw_message_id == raw_message_id).one_or_none()
-    if existing is not None:
-        existing.store_to = decision.store_to
-        existing.publish_priority = decision.publish_priority
-        existing.requires_evidence = decision.requires_evidence
-        existing.event_action = decision.event_action
-        existing.triage_action = decision.triage_action
-        existing.triage_rules = decision.triage_rules
-        existing.flags = decision.flags
-        db.flush()
-        return existing.id
+    # Compatibility shim; authoritative implementation moved to routing_decisions.py.
+    return upsert_routing_decision(db=db, raw_message_id=raw_message_id, decision=decision)
 
-    row = RoutingDecision(
-        raw_message_id=raw_message_id,
-        store_to=decision.store_to,
-        publish_priority=decision.publish_priority,
-        requires_evidence=decision.requires_evidence,
-        event_action=decision.event_action,
-        triage_action=decision.triage_action,
-        triage_rules=decision.triage_rules,
-        flags=decision.flags,
-    )
-    db.add(row)
-    db.flush()
-    return row.id
 
-def process_ingest_payload(
+def process_ingest_message(
     db: Session,
-    payload: TelegramIngestPayload,
+    payload: SourceMessageEnvelope,
     normalized_text: str,
 ) -> dict[str, object]:
-    existing = _get_existing_raw(db, payload.source_channel_id, payload.telegram_message_id)
+    existing = _get_existing_raw(db, payload.source_stream_id, payload.source_message_id)
     if existing is not None:
         event_id = _get_event_id_for_raw(db, existing.id)
         return {
@@ -74,9 +55,9 @@ def process_ingest_payload(
         }
 
     raw = RawMessage(
-        source_channel_id=payload.source_channel_id,
-        source_channel_name=payload.source_channel_name,
-        telegram_message_id=payload.telegram_message_id,
+        source_channel_id=payload.source_stream_id,
+        source_channel_name=payload.source_stream_name,
+        telegram_message_id=payload.source_message_id,
         message_timestamp_utc=payload.message_timestamp_utc.replace(tzinfo=None),
         raw_text=payload.raw_text,
         raw_entities=payload.raw_entities_if_available,
@@ -89,7 +70,7 @@ def process_ingest_payload(
         db.flush()
     except IntegrityError:
         db.rollback()
-        existing = _get_existing_raw(db, payload.source_channel_id, payload.telegram_message_id)
+        existing = _get_existing_raw(db, payload.source_stream_id, payload.source_message_id)
         if existing is None:
             raise
         event_id = _get_event_id_for_raw(db, existing.id)
@@ -111,3 +92,21 @@ def process_ingest_payload(
         "event_id": None,
         "event_action": None,
     }
+
+
+def process_ingest_payload(
+    db: Session,
+    payload: TelegramIngestPayload,
+    normalized_text: str,
+) -> dict[str, object]:
+    envelope = envelope_from_telegram_payload(payload)
+    return process_ingest_message(db=db, payload=envelope, normalized_text=normalized_text)
+
+
+def process_source_ingest_payload(
+    db: Session,
+    payload: SourceIngestPayload,
+    normalized_text: str,
+) -> dict[str, object]:
+    envelope = envelope_from_source_payload(payload)
+    return process_ingest_message(db=db, payload=envelope, normalized_text=normalized_text)

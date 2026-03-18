@@ -1,3 +1,19 @@
+"""Digest orchestration entrypoint.
+
+`run_digest` executes the end-to-end digest pipeline per destination:
+1. query deterministic candidate events
+2. build source digest events
+3. run deterministic pre-dedupe/pre-group
+4. synthesize digest (LLM path or deterministic fallback)
+5. render canonical text
+6. persist artifact (input-hash aware) and commit before publish
+7. render/publish destination payload
+8. mark all covered source event IDs as published on successful publish
+
+The orchestrator owns publication semantics and state transitions.
+Adapters are transport/presentation layers only.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,11 +27,13 @@ from ..config import Settings, get_settings
 from ..models import Event, PublishedPost
 from .adapters.base import DigestAdapter
 from .adapters.telegram import TelegramDigestAdapter
-from .artifact_store import canonical_hash_for_text, get_or_create_artifact
-from .builder import build_canonical_digest
+from .artifact_store import canonical_hash_for_text, get_or_create_artifact, input_hash_for_digest_inputs
+from .builder import build_source_digest_events, pre_dedupe_source_events
 from .dedupe import destination_already_published, get_destination_publication
+from .prompt_templates import PROMPT_VERSION
 from .query import get_events_for_window
 from .renderer_text import render_canonical_text
+from .synthesizer import DigestSynthesisClient, synthesize_digest
 from .types import DigestWindow
 
 
@@ -92,7 +110,13 @@ def run_digest(
     *,
     now_utc: datetime | None = None,
     adapters: Sequence[DigestAdapter] | None = None,
+    digest_llm_client: DigestSynthesisClient | None = None,
 ) -> dict[str, object]:
+    """Run digest orchestration for configured/ad-hoc destinations.
+
+    Returns run metadata including artifact identity and per-destination status.
+    """
+
     settings = get_settings()
     frozen_now = now_utc or datetime.utcnow()
     window = _freeze_window(frozen_now, window_hours)
@@ -122,14 +146,36 @@ def run_digest(
             )
             continue
 
-        canonical_digest = build_canonical_digest(events, window=window)
+        source_events = build_source_digest_events(events)
+        source_groups = pre_dedupe_source_events(source_events)
+        canonical_digest = synthesize_digest(
+            window=window,
+            source_events=source_events,
+            source_groups=source_groups,
+            settings=settings,
+            llm_client=digest_llm_client,
+        )
+
+        input_hash = input_hash_for_digest_inputs(
+            window=window,
+            source_events=source_events,
+            source_groups=source_groups,
+            top_developments_limit=settings.digest_top_developments_limit,
+            section_bullet_limit=settings.digest_section_bullet_limit,
+            prompt_version=PROMPT_VERSION,
+        )
         canonical_text = render_canonical_text(canonical_digest)
-        artifact = get_or_create_artifact(db, window=window, canonical_text=canonical_text)
+        artifact = get_or_create_artifact(
+            db,
+            window=window,
+            canonical_text=canonical_text,
+            input_hash=input_hash,
+        )
 
         # Invariant: persist and commit the canonical artifact before any publish attempt.
         db.commit()
 
-        event_ids = list(canonical_digest.event_ids)
+        event_ids = list(canonical_digest.covered_event_ids)
         all_event_ids.extend(event_ids)
         last_canonical_hash = canonical_hash_for_text(canonical_text)
         last_artifact_id = artifact.id

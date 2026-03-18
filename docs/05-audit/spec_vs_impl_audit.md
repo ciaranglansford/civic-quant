@@ -25,8 +25,10 @@ Track documentation consistency against current runtime behavior and the refined
 ## Current Implementation Verification Snapshot
 
 - Ingest is idempotent and persists immutable raw rows.
+- Ingest path now includes source-adapter mapping through a source-agnostic envelope before persistence.
 - Phase2 extraction is OpenAI-backed with strict schema validation.
 - Routing and event clustering run deterministically from structured extraction.
+- Shared extraction payload helpers reduce duplicated entity/keyword/source parsing logic across phase2, event matching, and enrichment selection.
 - Digest/reporting runs from event-level records.
 
 ## Execution Documentation Coverage Audit
@@ -49,8 +51,7 @@ Track documentation consistency against current runtime behavior and the refined
 ## Remaining Divergences / TODO (Docs-Level)
 
 1. Deterministic post-processing/canonicalization depth is partially implemented and should be expanded in future revisions.
-2. Entity-indexing dataset layer is represented in architecture intent; dedicated retrieval API docs should be added when endpoints are implemented.
-3. Deferred external validation/enrichment remains future workflow and should be documented with operational runbooks once implemented.
+2. Deferred external validation/enrichment remains future workflow and should be documented with operational runbooks once implemented.
 
 ## Out-of-Scope Notes
 

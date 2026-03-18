@@ -1,4 +1,4 @@
-"""OpenAI client wrapper for phase2 extraction (message -> structured claim JSON)."""
+"""OpenAI client wrapper for digest synthesis requests."""
 
 from __future__ import annotations
 
@@ -9,13 +9,12 @@ from dataclasses import dataclass
 import httpx
 
 
-class ProviderError(RuntimeError):
+class DigestProviderError(RuntimeError):
     pass
 
 
 @dataclass(frozen=True)
-class LlmResponse:
-    extractor_name: str
+class DigestLlmResponse:
     used_openai: bool
     model_name: str
     openai_response_id: str | None
@@ -24,7 +23,7 @@ class LlmResponse:
     raw_text: str
 
 
-class OpenAiExtractionClient:
+class OpenAiDigestSynthesisClient:
     def __init__(
         self,
         *,
@@ -44,7 +43,7 @@ class OpenAiExtractionClient:
     def _extract_output_text(body: dict) -> str:
         output = body.get("output", [])
         if not isinstance(output, list):
-            raise ProviderError("invalid output payload type")
+            raise DigestProviderError("invalid output payload type")
 
         texts: list[str] = []
         for item in output:
@@ -72,9 +71,9 @@ class OpenAiExtractionClient:
             if joined:
                 return joined
 
-        raise ProviderError("empty model response")
+        raise DigestProviderError("empty model response")
 
-    def extract(self, prompt_text: str) -> LlmResponse:
+    def synthesize(self, prompt_text: str) -> DigestLlmResponse:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {
             "model": self.model,
@@ -83,7 +82,7 @@ class OpenAiExtractionClient:
                 {
                     "role": "system",
                     "content": [
-                        {"type": "input_text", "text": "Return only strict JSON matching the requested schema."}
+                        {"type": "input_text", "text": "Return strict JSON only. Do not wrap in markdown."}
                     ],
                 },
                 {
@@ -98,13 +97,12 @@ class OpenAiExtractionClient:
             started_at = time.perf_counter()
             try:
                 with httpx.Client(timeout=self.timeout_seconds) as client:
-                    r = client.post(self.endpoint, headers=headers, json=payload)
-                r.raise_for_status()
-                body = r.json()
+                    response = client.post(self.endpoint, headers=headers, json=payload)
+                response.raise_for_status()
+                body = response.json()
                 raw_text = self._extract_output_text(body)
                 latency_ms = int((time.perf_counter() - started_at) * 1000)
-                return LlmResponse(
-                    extractor_name="extract-and-score-openai-v1",
+                return DigestLlmResponse(
                     used_openai=True,
                     model_name=str(body.get("model") or self.model),
                     openai_response_id=body.get("id"),
@@ -112,6 +110,7 @@ class OpenAiExtractionClient:
                     retries=attempt,
                     raw_text=raw_text,
                 )
-            except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, ProviderError) as e:
-                last_error = e
-        raise ProviderError(f"openai request failed after retries: {type(last_error).__name__}")
+            except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, DigestProviderError) as exc:
+                last_error = exc
+
+        raise DigestProviderError(f"openai request failed after retries: {type(last_error).__name__}")

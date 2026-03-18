@@ -21,7 +21,7 @@ Input characteristics:
 - Deterministic normalization runs before extraction.
 - Phase2 extraction job uses OpenAI Responses API with strict validation.
 - Deterministic routing and event upsert create/update canonical event clusters.
-- Digest job publishes event-level summaries.
+- Digest job performs deterministic selection/state management plus optional LLM synthesis to publish structured briefings.
 
 ## Target-State Pipeline
 

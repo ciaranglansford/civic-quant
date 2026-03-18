@@ -23,10 +23,19 @@ from .canonicalization import (
 from .entity_indexing import index_entities_for_extraction
 from .enrichment_selection import select_and_store_enrichment_candidate
 from .event_manager import EventUpsertResult, find_candidate_event, upsert_event
+from .extraction_payload_utils import (
+    entity_signature_from_payload,
+    keywords_from_payload,
+    payload_for_extraction_row,
+    source_class_from_payload,
+    source_from_payload,
+    summary_tags_from_payload,
+)
 from .extraction_llm_client import OpenAiExtractionClient, ProviderError
 from .extraction_validation import ExtractionValidationError, parse_and_validate_extraction
 from .impact_scoring import ImpactCalibrationResult, calibrate_impact, distribution_metrics
 from .prompt_templates import render_extraction_prompt
+from .routing_decisions import upsert_routing_decision
 from .routing_engine import route_extraction
 from .triage_engine import (
     CandidateEventContext,
@@ -35,7 +44,6 @@ from .triage_engine import (
     impact_band,
     entity_signature,
 )
-from .ingest_pipeline import store_routing_decision
 
 logger = logging.getLogger("civicquant.phase2")
 OPENAI_EXTRACTOR_NAME = "extract-and-score-openai-v1"
@@ -143,77 +151,19 @@ def _release_lock(db: Session, run_id: str) -> None:
         db.flush()
 
 
-def _payload_for_extraction_row(row: Extraction) -> dict:
-    payload = row.canonical_payload_json or row.payload_json or {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _entities_from_payload(payload: dict) -> set[str]:
-    entities = payload.get("entities") if isinstance(payload, dict) else {}
-    if not isinstance(entities, dict):
-        entities = {}
-    out: set[str] = set()
-    for key, prefix in (("countries", "country"), ("orgs", "org"), ("people", "person")):
-        values = entities.get(key, [])
-        if isinstance(values, list):
-            for value in values:
-                if isinstance(value, str) and value.strip():
-                    out.add(f"{prefix}:{value.strip().lower()}")
-    return out
-
-
-def _keywords_from_payload(payload: dict) -> set[str]:
-    values = payload.get("keywords", []) if isinstance(payload, dict) else []
-    out: set[str] = set()
-    if isinstance(values, list):
-        for value in values:
-            if isinstance(value, str) and value.strip():
-                out.add(value.strip().lower())
-    return out
-
-
-def _source_from_payload(payload: dict) -> str:
-    value = payload.get("source_claimed") if isinstance(payload, dict) else None
-    if isinstance(value, str):
-        return value.strip().lower()
-    return ""
-
-
-def _summary_tags_from_text(summary: str) -> set[str]:
-    normalized = summary.lower()
-    tags: set[str] = set()
-    if any(token in normalized for token in ("condemn", "concern", "urge", "calls for", "unacceptable", "warn", "respond")):
-        tags.add("reaction")
-    if any(token in normalized for token in ("strike", "attack", "launched", "killed", "injured", "casualties", "missile", "troops", "explosion")):
-        tags.add("operational")
-    return tags
-
-
-def _source_class_from_payload(payload: dict) -> str:
-    source = str(payload.get("source_claimed") or "").lower()
-    summary = str(payload.get("summary_1_sentence") or "").lower()
-    combined = f"{source} {summary}"
-    if any(token in combined for token in ("police", "ministry", "official", "military", "agency", "spokesperson", "according to")):
-        return "authority"
-    if any(token in combined for token in ("commentary", "analyst", "opinion", "urges", "condemns", "concerned")):
-        return "commentary"
-    return "unknown"
-
-
 def _candidate_event_context(db: Session, existing_event) -> CandidateEventContext | None:
     if existing_event is None or existing_event.latest_extraction_id is None:
         return None
     latest = db.query(Extraction).filter_by(id=existing_event.latest_extraction_id).one_or_none()
     if latest is None:
         return None
-    payload = _payload_for_extraction_row(latest)
-    summary = str(payload.get("summary_1_sentence") or "")
+    payload = payload_for_extraction_row(latest)
     impact_val = latest.impact_score if latest.impact_score is not None else float(payload.get("impact_score") or 0.0)
     return CandidateEventContext(
         impact_band=impact_band(float(impact_val)),
-        entities=_entities_from_payload(payload),
-        summary_tags=_summary_tags_from_text(summary),
-        source_class=_source_class_from_payload(payload),
+        entities=entity_signature_from_payload(payload),
+        summary_tags=summary_tags_from_payload(payload),
+        source_class=source_class_from_payload(payload),
     )
 
 
@@ -284,11 +234,11 @@ def _burst_low_delta_prior_count(
     soft_related_match = False
 
     for row in recent_rows:
-        payload = _payload_for_extraction_row(row)
+        payload = payload_for_extraction_row(row)
         row_fp = str(payload.get("event_fingerprint") or row.event_fingerprint or "")
-        row_entities = _entities_from_payload(payload)
-        row_keywords = _keywords_from_payload(payload)
-        row_source = _source_from_payload(payload)
+        row_entities = entity_signature_from_payload(payload)
+        row_keywords = keywords_from_payload(payload)
+        row_source = source_from_payload(payload)
         overlap = len(current_entities & row_entities)
         keyword_overlap = len(current_keywords & row_keywords)
         same_source_keyword_overlap = bool(current_source and row_source and current_source == row_source and keyword_overlap >= 2)
@@ -674,7 +624,7 @@ def process_phase2_batch(
                     decision.flags = sorted(set(flags))
                     decision.triage_rules = triage_rules
 
-                store_routing_decision(db, raw.id, decision)
+                upsert_routing_decision(db, raw.id, decision)
 
                 if event_id is not None:
                     try:

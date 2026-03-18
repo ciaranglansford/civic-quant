@@ -69,6 +69,19 @@ def _payload(channel_id: str, msg_id: str, text: str) -> dict:
     }
 
 
+def _source_payload(source_type: str, stream_id: str, msg_id: str, text: str) -> dict:
+    return {
+        "source_type": source_type,
+        "source_stream_id": stream_id,
+        "source_stream_name": "feed",
+        "source_message_id": msg_id,
+        "message_timestamp_utc": (dt.datetime.utcnow().isoformat() + "Z"),
+        "raw_text": text,
+        "raw_entities_if_available": None,
+        "forwarded_from_if_available": None,
+    }
+
+
 def test_ingest_creates_rows_and_is_idempotent(client: TestClient):
     r = client.post("/ingest/telegram", json=_payload("c1", "m1", "FED hikes 25bp; USD jumps"))
     assert r.status_code == 200
@@ -82,6 +95,64 @@ def test_ingest_creates_rows_and_is_idempotent(client: TestClient):
     body2 = r2.json()
     assert body2["status"] == "duplicate"
     assert body2["raw_message_id"] == body["raw_message_id"]
+
+
+def test_source_ingest_creates_rows_and_is_idempotent(client: TestClient):
+    r = client.post(
+        "/ingest/source",
+        json=_source_payload("telegram", "src-1", "src-msg-1", "BOE hikes 25bp"),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "created"
+    assert isinstance(body["raw_message_id"], int)
+
+    r2 = client.post(
+        "/ingest/source",
+        json=_source_payload("telegram", "src-1", "src-msg-1", "BOE hikes 25bp"),
+    )
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["status"] == "duplicate"
+    assert body2["raw_message_id"] == body["raw_message_id"]
+
+
+def test_source_ingest_namespaces_non_telegram_stream_ids(client: TestClient):
+    telegram = client.post(
+        "/ingest/telegram",
+        json=_payload("shared-stream", "shared-msg", "Telegram bulletin"),
+    )
+    assert telegram.status_code == 200
+    assert telegram.json()["status"] == "created"
+
+    source = client.post(
+        "/ingest/source",
+        json=_source_payload("rss", "shared-stream", "shared-msg", "RSS bulletin"),
+    )
+    assert source.status_code == 200
+    assert source.json()["status"] == "created"
+
+    from app.db import SessionLocal
+    from app.models import RawMessage
+
+    with SessionLocal() as db:
+        telegram_row = (
+            db.query(RawMessage)
+            .filter(
+                RawMessage.source_channel_id == "shared-stream",
+                RawMessage.telegram_message_id == "shared-msg",
+            )
+            .one()
+        )
+        source_row = (
+            db.query(RawMessage)
+            .filter(
+                RawMessage.source_channel_id == "rss:shared-stream",
+                RawMessage.telegram_message_id == "shared-msg",
+            )
+            .one()
+        )
+        assert telegram_row.id != source_row.id
 
 
 def test_phase2_manual_trigger_requires_auth(client: TestClient):

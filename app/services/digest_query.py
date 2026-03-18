@@ -1,7 +1,10 @@
 """
 Transitional compatibility shim for legacy service imports.
 
-Authoritative digest query implementation lives in `app.digest.query`.
+Authoritative digest query implementation lives in `app.digest.query` and remains
+deterministic (window bounds, impact threshold integration in orchestrator, and
+destination publication-eligibility filtering).
+
 Do not add business logic here; keep this module as a thin delegator only.
 """
 

@@ -8,8 +8,11 @@ Define responsibilities in a wire-bulletin intelligence pipeline and distinguish
 
 ### Bulletin Ingest Service
 - Responsibility: receive listener payloads and persist immutable raw observations idempotently.
-- Inputs: Telegram bulletin payload.
+- Inputs: source payloads mapped into a source-agnostic ingest envelope.
 - Outputs: `raw_messages` row + processing state.
+- Notes:
+  - `POST /ingest/telegram` remains as a Telegram adapter endpoint.
+  - `POST /ingest/source` accepts source-agnostic payloads for future adapters.
 
 ### Normalization Service
 - Responsibility: deterministic preprocessing for extraction stability.
@@ -30,6 +33,8 @@ Define responsibilities in a wire-bulletin intelligence pipeline and distinguish
 - Responsibility: deterministic ranking and actioning from structured extraction.
 - Inputs: extraction payload.
 - Outputs: routing decision (`store_to`, priority, flags, event action).
+- Persistence ownership:
+  - routing decision upsert is handled in a dedicated persistence module (`routing_decisions`).
 
 ### Event Manager Service
 - Responsibility: cluster repetitive/incremental observations into evolving canonical events.
@@ -37,9 +42,13 @@ Define responsibilities in a wire-bulletin intelligence pipeline and distinguish
 - Outputs: event create/update + link row.
 
 ### Reporting Service
-- Responsibility: build scheduled event-level digest/report outputs.
-- Inputs: queried event dataset.
-- Outputs: published report text + publication audit record.
+- Responsibility: build scheduled digest outputs from event data using deterministic state logic plus optional LLM synthesis.
+- Inputs: queried event dataset, digest synthesis settings.
+- Outputs: canonical digest artifact + destination payload + publication audit record.
+- Guardrails:
+  - deterministic pre-dedupe runs before synthesis,
+  - synthesis output is schema/semantic validated,
+  - deterministic fallback is used when synthesis is disabled or invalid.
 
 ## Target-State Additions
 

@@ -1,188 +1,184 @@
 # Civicquant Intelligence Pipeline
 
-Civicquant is a Telegram wire-bulletin ingestion and intelligence pipeline.
+Civicquant is a structured intelligence pipeline for wire-style bulletin streams. It is not a generic news aggregator and it is not a raw event feed formatter.
 
-The system is designed for headline/ticker-style bulletins that are:
-- short and urgent,
-- source-attributed,
-- repetitive and incremental,
-- sometimes contradictory,
-- often reported claims before confirmation.
+The system combines:
+- deterministic ingestion, storage, filtering, and publication state management
+- LLM extraction of structured claims
+- LLM-assisted digest synthesis with deterministic validation and fallback
 
-This is not a public chat parser. It is a staged pipeline for capturing bulletin observations, structuring them, clustering them into events, and producing scheduled reporting from structured data.
+## What The System Produces
 
-## Pipeline Overview
+The pipeline converts short bulletin text into:
+- structured event records (`events`) representing reported claims
+- scheduled digests that synthesize those events into a briefing format
 
-The refined target-state flow is:
+Important truth-model rule:
+- events and digest bullets represent reported claims, not confirmed facts
+- uncertainty and attribution language (for example "reportedly", "according to", "claimed") should be preserved when present
 
-1. Raw ingest
-2. Structural normalization
-3. AI extraction of literal reported claim
-4. Deterministic post-processing / triage
-5. Event clustering
-6. Entity indexing / dataset construction
-7. Deferred enrichment / external validation
-8. Scheduled reporting
+## Pipeline Architecture
 
-## Truth Model
+`Ingestion -> Extraction (LLM) -> Event Storage -> Digest Selection (deterministic) -> Digest Synthesis (LLM) -> Rendering -> Publishing`
 
-- Bulletins are treated as reported claims unless validated later.
-- Extraction must preserve attribution and uncertainty language.
-- `confidence` means confidence in extraction/classification quality, not factual truth.
-- `impact_score` means significance of the reported claim if taken at face value, not confirmation.
+### Stage-by-stage
 
-## Current Implementation (What Exists Today)
+1. Ingestion
+- Listener posts source messages to ingest routes.
+- Backend normalizes text and writes immutable raw rows (`raw_messages`).
 
-- FastAPI backend with:
-  - `GET /health`
-  - `POST /ingest/telegram`
-  - `POST /admin/process/phase2-extractions` (token-gated; supports `?force_reprocess=true`)
-- Poll-based Telegram listener (`python -m listener.telegram_listener`) that forwards messages to ingest API.
-- Idempotent raw capture into `raw_messages`.
-- Deterministic normalization before extraction.
-- Scheduled/manual phase2 extraction (`python -m app.jobs.run_phase2_extraction`) using OpenAI Responses API with strict schema validation and prompt template `extraction_agent_v3`.
-- Extraction persistence stores raw validated payload (`payload_json`) and deterministic canonicalized payload (`canonical_payload_json`).
-- Two-level identity contract is active:
-  - replay identity (`raw_message_id` + normalized text hash + extractor/prompt/schema/canonicalizer versions) for same-message reruns
-  - event identity fingerprint (`event_identity_fingerprint_v2`) for cross-message clustering
-- Replay-safe default behavior is active: identical replay identity reuses existing canonical extraction and skips model calls unless forced reprocess is requested.
-- Content-level reuse is active by default: identical normalized text under the same extractor contract can reuse a prior canonical extraction across different `raw_message_id`s and skip repeat model calls.
-- Deterministic routing + triage + event upsert (`events`, `event_messages`, `routing_decisions`) with entity indexing (`entity_mentions`).
-- Stage 1 deterministic calibration is active in triage/routing:
-  - score bands are used for routing decisions (raw scores remain unchanged),
-  - repetitive low-delta bursts are downgraded,
-  - local domestic incident patterns are capped to monitor-or-lower and forced evidence-required,
-  - high-risk unattributed summaries are safety-rewritten only in canonical payloads.
-- Digest job (`python -m app.jobs.run_digest`) publishing event-based summaries.
-- Existing-data adoption job (`python -m app.jobs.adopt_stability_contracts`) is available for backfill/audit/duplicate cleanup before enabling stricter unique indexes.
+2. Extraction (LLM)
+- `app/services/phase2_processing.py` calls the extraction client.
+- LLM returns strict JSON, then deterministic validation/canonicalization runs.
+- Structured outputs are stored in `extractions`.
 
-## Component Map
+3. Event Storage / Clustering
+- Deterministic routing + event upsert logic writes `events` and `event_messages`.
 
-- `app/routers/`: HTTP interfaces (`ingest`, `admin`).
-- `app/services/`: normalization, extraction processing, routing, event management, digest logic.
-- `app/models.py`: storage contract for raw messages, processing state, extractions, events, routing decisions, published posts.
-- `app/jobs/`: operational jobs (phase2 extraction, digest, reset/test helpers). See `app/jobs/README.md` for run commands and job descriptions.
-- `listener/`: Telegram ingestion worker.
-- `docs/`: architecture, flow, interfaces, operations, audit references.
+4. Digest Selection (deterministic)
+- `app/digest/query.py` filters by frozen time window and impact threshold.
+- Selection and publication-eligibility checks are deterministic.
+
+5. Digest Synthesis (LLM + deterministic guardrails)
+- `app/digest/builder.py` builds `SourceDigestEvent` rows and deterministic pre-dedupe groups.
+- `app/digest/synthesizer.py` asks the LLM for structured digest composition.
+- Strict validation enforces ID accounting, disjoint coverage, topic validity, and non-empty bullets.
+- If synthesis is disabled or invalid, deterministic fallback composition is used.
+
+6. Rendering
+- Canonical text render (`app/digest/renderer_text.py`) is produced from `CanonicalDigest`.
+- Destination adapters render payloads from canonical semantics only.
+
+7. Publishing
+- Artifact is persisted before any publish attempt.
+- Per-destination rows are tracked in `published_posts`.
+- Covered source event IDs are marked published after successful destination publish.
+
+## LLM Usage
+
+LLM is used in two places:
+
+1. Extraction layer
+- Parses normalized message text into structured extraction JSON.
+- Output is schema-validated and post-processed deterministically.
+
+2. Digest synthesis layer
+- Merges semantically similar developments.
+- Composes top developments and topic bullets.
+- Produces non-redundant structured digest output.
+- Preserves uncertainty/attribution language when source inputs include it.
+
+What the LLM does not control:
+- event selection thresholds/window logic
+- publication state transitions
+- source-event coverage accounting
+- artifact deduplication identity
+
+## Digest Composition
+
+- Top developments are synthesized (not simple "newest N").
+- Events represented in top developments do not reappear in topic sections.
+- Deterministic pre-dedupe groups obvious duplicates before synthesis.
+- LLM can merge same-story groups into one bullet.
+- A single bullet can map to multiple `source_event_ids`.
+- All covered source event IDs are tracked in the canonical digest and used for publish marking.
+
+## Deterministic vs LLM-driven Components
+
+Deterministic components:
+- ingestion and raw persistence
+- extraction validation/canonicalization
+- digest event selection (window + impact filter + destination publication eligibility)
+- pre-dedupe grouping by claim hash / fingerprint / normalized summary
+- synthesis output validation
+- publication state updates and destination dedupe
+- fallback builder behavior
+
+LLM-driven components:
+- extraction content interpretation
+- digest semantic merging and editorial phrasing
+- relative prominence ordering in synthesized briefing text
+
+Why the split exists:
+- LLM is used for meaning and synthesis quality.
+- Code remains authoritative for state, identity, dedupe rules, and publication safety.
+
+## Failure Handling and Fallback
+
+- Digest synthesis can be disabled (`digest_llm_enabled=false`) or unavailable (missing key/model).
+- If synthesis output fails schema/semantic validation, the pipeline falls back to deterministic builder output.
+- The pipeline still emits a valid canonical digest object and can continue publishing.
+
+## Design Principles
+
+- LLM for meaning, code for state.
+- Never let LLM control publication or state transitions.
+- All source events must be accounted for, even when merged.
+- Digest is an interpretation layer, not raw data replay.
+
+## Key Runtime Components
+
+- Backend API: `uvicorn app.main:app --reload`
+- Listener: `python -m listener.telegram_listener`
+- Extraction job: `python -m app.jobs.run_phase2_extraction`
+- Digest job: `python -m app.jobs.run_digest`
+
+## Configuration Highlights
+
+### Extraction
+- `PHASE2_EXTRACTION_ENABLED`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_TIMEOUT_SECONDS`
+- `OPENAI_MAX_RETRIES`
+
+### Digest
+- `VIP_DIGEST_HOURS`
+- `DIGEST_LLM_ENABLED`
+- `DIGEST_OPENAI_MODEL`
+- `DIGEST_OPENAI_TIMEOUT_SECONDS`
+- `DIGEST_OPENAI_MAX_RETRIES`
+- `DIGEST_TOP_DEVELOPMENTS_LIMIT`
+- `DIGEST_SECTION_BULLET_LIMIT`
+- `TG_BOT_TOKEN`
+- `TG_VIP_CHAT_ID`
 
 ## Quickstart
 
-1. Install dependencies:
-
+1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure `.env` (or environment variables):
+2. Configure `.env`
+- database + API settings
+- listener credentials/settings
+- extraction settings
+- digest settings
 
-- Backend:
-  - `DATABASE_URL`
-  - `API_HOST` (optional)
-  - `API_PORT` (optional)
-  - `VIP_DIGEST_HOURS` (optional)
-- Listener:
-  - `TG_API_ID`
-  - `TG_API_HASH`
-  - `TG_SESSION_NAME`
-  - `TG_SOURCE_CHANNEL`
-  - `INGEST_API_BASE_URL`
-- Digest publishing:
-  - `TG_BOT_TOKEN`
-  - `TG_VIP_CHAT_ID`
-- Phase2 extraction:
-  - `PHASE2_EXTRACTION_ENABLED=true`
-  - `OPENAI_API_KEY`
-  - `OPENAI_MODEL`
-  - `OPENAI_TIMEOUT_SECONDS`
-  - `OPENAI_MAX_RETRIES`
-  - `PHASE2_BATCH_SIZE`
-  - `PHASE2_LEASE_SECONDS`
-  - `PHASE2_CONTENT_REUSE_ENABLED` (default `true`)
-  - `PHASE2_CONTENT_REUSE_WINDOW_HOURS` (default `6`)
-  - `PHASE2_ADMIN_TOKEN` (for admin trigger endpoint)
-
-## Local Execution Paths
-
-### Path A: Minimal backend-only loop
-
-Use this when validating ingest API + schema + DB setup.
-
-1. Start backend:
+3. Run backend
 ```bash
 uvicorn app.main:app --reload
 ```
-2. Run tests:
-```bash
-pytest -q
-```
 
-### Path B: Full local pipeline loop
-
-Use this when validating capture -> extraction -> clustering -> reporting.
-
-1. Start backend:
-```bash
-uvicorn app.main:app --reload
-```
-2. Start listener (optional if manually posting ingest payloads):
-```bash
-python -m listener.telegram_listener
-```
-3. Run phase2 extraction batch:
+4. Run phase2 extraction
 ```bash
 python -m app.jobs.run_phase2_extraction
 ```
-4. Run digest/report job:
+
+5. Run digest
 ```bash
 python -m app.jobs.run_digest
 ```
 
-## Command-by-Stage Matrix
+## Digest vs Raw Event Feed
 
-| Pipeline stage | Command | Primary purpose | Key output |
-|---|---|---|---|
-| Setup | `pip install -r requirements.txt` | Install dependencies | Runnable env |
-| Stage 1-2 (capture/normalize) | `uvicorn app.main:app --reload` + `python -m listener.telegram_listener` | Ingest and normalize bulletins | `raw_messages`, `message_processing_states` |
-| Stage 3-5 (extract/triage/cluster) | `python -m app.jobs.run_phase2_extraction` | Structured claim extraction + routing + event updates | `extractions`, `routing_decisions`, `events`, `event_messages` |
-| Stage 3 probe | `python -m app.jobs.test_openai_extract` | Prompt/extractor smoke test | Console output + validation proof |
-| Stage 8 (reporting) | `python -m app.jobs.run_digest` | Generate event-level digest | `published_posts` |
-| Verification | `pytest -q` | Full test suite | Pass/fail summary |
-| Verification (targeted) | `pytest -q tests/test_extraction_llm_client.py` | Extraction client tests | Pass/fail summary |
-| Verification (targeted) | `pytest -q tests/test_e2e_backend.py` | End-to-end pipeline checks | Pass/fail summary |
+- Raw feed/API event list is an indexed event dataset.
+- Digest is a synthesized briefing built from selected events.
+- Digest bullets can represent merged source events and are intentionally editorially compressed.
 
-## Reprocessing Guidance
+## Documentation
 
-- Preserve raw ingest data and re-run derived processing:
-```bash
-CONFIRM_CLEAR_NON_RAW=true python -m app.jobs.clear_all_but_raw_messages
-```
-Use this when iterating extraction/routing/event logic while keeping source bulletin history.
-
-- Full destructive dev reset:
-```bash
-CONFIRM_RESET_DEV_SCHEMA=true python -m app.jobs.reset_dev_schema
-```
-Use this when schema/layout drift makes partial reprocessing insufficient.
-
-## Runtime Inputs and Outputs (Quick Reference)
-
-| Runtime | Pipeline position | Consumes | Produces |
-|---|---|---|---|
-| Listener | Stage 1 ingress source | Telegram source feed | HTTP ingest payloads |
-| Backend ingest route | Stage 1-2 | Listener payload | Immutable raw rows + normalized text |
-| Phase2 extraction job | Stage 3-5 | Eligible raw messages | Structured claim rows + triage + events |
-| Digest job | Stage 8 | Event-level structured data | Published report records |
-
-## Docs Entry Points
-
-- Overview: `docs/01-overview/README.md`
-- Architecture: `docs/01-overview/ARCHITECTURE.md`
-- Flows: `docs/02-flows/DATA_FLOW.md`
-- Interfaces/storage: `docs/03-interfaces/schemas_and_storage_model.md`
-- Operations: `docs/04-operations/operations_and_scheduling.md`
-- Audit: `docs/05-audit/spec_vs_impl_audit.md`
-
-## Notes
-
-This repository contains both implemented behavior and forward-looking architecture intent in docs. Each major doc distinguishes current state vs target state vs future optional enhancements.
-
+- Docs index: `docs/README.md`
+- New digest technical deep dive: `docs/digest_pipeline.md`
+- Existing digest architecture notes: `docs/03-architecture/digest_canonical_pipeline.md`

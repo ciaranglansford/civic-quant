@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..models import EnrichmentCandidate, Event, Extraction
 from ..schemas import ExtractionJson
+from .extraction_payload_utils import entity_signature_from_payload
 from .impact_scoring import ImpactCalibrationResult
 
 
@@ -58,23 +59,6 @@ def _entity_signature(extraction: ExtractionJson) -> set[str]:
     return out
 
 
-def _entity_signature_from_payload(payload: dict) -> set[str]:
-    entities = payload.get("entities") if isinstance(payload, dict) else {}
-    if not isinstance(entities, dict):
-        return set()
-    out: set[str] = set()
-    for key, prefix in (("countries", "country"), ("orgs", "org"), ("people", "person")):
-        values = entities.get(key, [])
-        if not isinstance(values, list):
-            continue
-        for raw in values:
-            if isinstance(raw, str):
-                cleaned = raw.strip().lower()
-                if cleaned:
-                    out.add(f"{prefix}:{cleaned}")
-    return out
-
-
 def _novelty_cluster_key(extraction: ExtractionJson) -> str:
     if extraction.event_fingerprint:
         return extraction.event_fingerprint
@@ -122,7 +106,7 @@ def _blocked_by_title_entity_overlap(
             latest = by_id.get(candidate.latest_extraction_id)
             if latest is not None:
                 payload = latest.canonical_payload_json or latest.payload_json or {}
-                entity_overlap = len(current_entities & _entity_signature_from_payload(payload if isinstance(payload, dict) else {}))
+                entity_overlap = len(current_entities & entity_signature_from_payload(payload if isinstance(payload, dict) else {}))
 
         if entity_overlap < 1:
             continue

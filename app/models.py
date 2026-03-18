@@ -216,6 +216,13 @@ class RoutingDecision(Base):
 
 
 class DigestArtifact(Base):
+    """Persisted digest artifact.
+
+    `input_hash` is a stable identity derived from source digest inputs.
+    It allows dedupe across reruns even when synthesized canonical text varies.
+    `canonical_hash` remains the hash of rendered canonical text.
+    """
+
     __tablename__ = "digest_artifacts"
 
     id = Column(Integer, primary_key=True)
@@ -223,12 +230,15 @@ class DigestArtifact(Base):
     window_end_utc = Column(DateTime, nullable=False, index=True)
     canonical_text = Column(Text, nullable=False)
     canonical_hash = Column(String(128), nullable=False, unique=True, index=True)
+    input_hash = Column(String(128), nullable=True, unique=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     published_posts = relationship("PublishedPost", back_populates="artifact")
 
 
 class PublishedPost(Base):
+    """Per-destination publish attempt/outcome for a digest artifact."""
+
     __tablename__ = "published_posts"
     __table_args__ = (
         UniqueConstraint("artifact_id", "destination", name="uq_published_posts_artifact_destination"),

@@ -10,6 +10,11 @@ from ..models import Event, EventMessage, Extraction
 from ..schemas import ExtractionJson
 from .canonicalization import derive_action_class, event_time_bucket
 from .event_windows import get_event_time_window
+from .extraction_payload_utils import (
+    entity_signature_from_payload,
+    keywords_from_payload,
+    source_from_payload,
+)
 
 
 logger = logging.getLogger("civicquant.events")
@@ -42,49 +47,12 @@ def _entity_signature_from_extraction(extraction: ExtractionJson) -> set[str]:
     return out
 
 
-def _entity_signature_from_payload(payload: dict) -> set[str]:
-    entities = payload.get("entities") if isinstance(payload, dict) else {}
-    if not isinstance(entities, dict):
-        entities = {}
-    out: set[str] = set()
-    for key, prefix in (("countries", "country"), ("orgs", "org"), ("people", "person")):
-        values = entities.get(key, [])
-        if not isinstance(values, list):
-            continue
-        for value in values:
-            if isinstance(value, str):
-                cleaned = value.strip().lower()
-                if cleaned:
-                    out.add(f"{prefix}:{cleaned}")
-    return out
-
-
 def _keywords_from_extraction(extraction: ExtractionJson) -> set[str]:
     return _normalized_values(extraction.keywords)
 
 
-def _keywords_from_payload(payload: dict) -> set[str]:
-    values = payload.get("keywords", []) if isinstance(payload, dict) else []
-    if not isinstance(values, list):
-        return set()
-    out: set[str] = set()
-    for value in values:
-        if isinstance(value, str):
-            cleaned = value.strip().lower()
-            if cleaned:
-                out.add(cleaned)
-    return out
-
-
 def _source_from_extraction(extraction: ExtractionJson) -> str:
     return (extraction.source_claimed or "").strip().lower()
-
-
-def _source_from_payload(payload: dict) -> str:
-    value = payload.get("source_claimed") if isinstance(payload, dict) else None
-    if isinstance(value, str):
-        return value.strip().lower()
-    return ""
 
 
 def _is_contextual_match(
@@ -95,9 +63,9 @@ def _is_contextual_match(
     current_keywords = _keywords_from_extraction(extraction)
     current_source = _source_from_extraction(extraction)
 
-    candidate_entities = _entity_signature_from_payload(payload)
-    candidate_keywords = _keywords_from_payload(payload)
-    candidate_source = _source_from_payload(payload)
+    candidate_entities = entity_signature_from_payload(payload)
+    candidate_keywords = keywords_from_payload(payload)
+    candidate_source = source_from_payload(payload)
 
     entity_overlap = len(current_entities & candidate_entities)
     keyword_overlap = len(current_keywords & candidate_keywords)

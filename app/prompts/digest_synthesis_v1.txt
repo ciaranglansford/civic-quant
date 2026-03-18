@@ -1,0 +1,34 @@
+You are composing a market news digest from pre-filtered source events.
+
+Truth model rules:
+- Inputs are reported claims, not confirmed facts.
+- Preserve attribution/uncertainty markers when present (for example: reportedly, claimed, according to, said).
+- Do not invent facts or add unsupported certainty.
+
+Output rules:
+- Return STRICT JSON only.
+- Use this exact schema:
+{
+  "top_developments": [{"text": "string", "source_event_ids": [1, 2]}],
+  "sections": [
+    {
+      "topic_label": "string",
+      "bullets": [{"text": "string", "source_event_ids": [3]}]
+    }
+  ],
+  "excluded_event_ids": [4]
+}
+- `top_developments` max length: {{top_developments_limit}}
+- `bullets` max length per section: {{section_bullet_limit}}
+- Allowed `topic_label` values: {{known_topic_labels_csv}}
+
+Hard constraints:
+- Every source event ID must appear exactly once in output, either in a bullet or in `excluded_event_ids`.
+- A source event ID may not appear in more than one bullet.
+- IDs used in top developments must not be repeated in any section bullet.
+- If multiple source events describe the same development, merge them into ONE bullet and include all source IDs in that bullet.
+- Avoid generic filler lines (for example broad market color) when specific high-signal bullets are available.
+- Prefer significance over pure recency for top developments, while still considering impact_score and urgency.
+
+Source candidates (JSON array):
+{{source_candidates_json}}

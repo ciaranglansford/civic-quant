@@ -109,7 +109,7 @@ def _keyword_set(extraction: ExtractionJson) -> list[str]:
     return sorted(cleaned)
 
 
-def _summary_tags(summary: str) -> set[str]:
+def summary_tags(summary: str) -> set[str]:
     normalized = _normalize_text(summary)
     tags: set[str] = set()
     if any(token in normalized for token in _REACTION_LEXICON):
@@ -135,7 +135,7 @@ def classify_source(source_claimed: str | None, summary: str) -> str:
 
 
 def derive_claim_signature(extraction: ExtractionJson) -> str:
-    tags = ",".join(sorted(_summary_tags(extraction.summary_1_sentence)))
+    tags = ",".join(sorted(summary_tags(extraction.summary_1_sentence)))
     keywords = ",".join(_keyword_set(extraction))
     source = _normalize_text(extraction.source_claimed)
     return f"{extraction.topic}|{keywords}|{source}|{tags}"
@@ -216,7 +216,7 @@ def _materially_new(
     if candidate.impact_band is not None and _band_rank(current_band) > _band_rank(candidate.impact_band):
         return True
 
-    current_tags = _summary_tags(extraction.summary_1_sentence)
+    current_tags = summary_tags(extraction.summary_1_sentence)
     candidate_tags = candidate.summary_tags or set()
     reaction_to_operational = "operational" in current_tags and "operational" not in candidate_tags and "reaction" in candidate_tags
     if reaction_to_operational:

@@ -8,7 +8,7 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 
 - Exposed HTTP endpoints are focused on ingest and operational triggering.
 - Most stage execution (extraction, triage, clustering, reporting) currently runs via jobs/services, not broad public API endpoints.
-- Retrieval API endpoints are not documented as implemented in the current codebase.
+- A lightweight retrieval endpoint exists for downstream feed consumers.
 
 ## Current Implemented Endpoints
 
@@ -25,6 +25,17 @@ This API supports wire-bulletin ingestion and operational processing jobs.
   - normalizes text,
   - stores immutable raw record idempotently.
 
+### `POST /ingest/source`
+- Purpose: ingest one source-agnostic bulletin observation.
+- Request model: `SourceIngestPayload`.
+- Response model: `IngestResponse`.
+- Behavior:
+  - validates payload,
+  - normalizes text,
+  - maps source payload into a common ingest envelope,
+  - namespaces non-Telegram stream identifiers as `<source_type>:<source_stream_id>` to avoid cross-source identity collisions,
+  - stores immutable raw record idempotently.
+
 ### `POST /admin/process/phase2-extractions`
 - Purpose: manual internal trigger for one phase2 extraction run.
 - Guard: admin token header.
@@ -34,6 +45,17 @@ This API supports wire-bulletin ingestion and operational processing jobs.
   - `force_reprocess=false`: replay-identity matches reuse existing extraction rows and skip model calls.
   - `force_reprocess=false`: content-reuse matches (same normalized text + extractor contract) can reuse prior canonical extraction across different raw messages.
   - `force_reprocess=true`: bypass replay/content reuse for that run.
+
+### `GET /api/feed/events`
+- Purpose: retrieve canonical event feed items for downstream consumers.
+- Query params:
+  - `limit` (optional)
+  - `cursor` (optional)
+  - `topic` (optional)
+- Response model: `FeedEventsResponse`.
+- Behavior:
+  - returns event-level summaries ordered by `event_time DESC, id DESC`,
+  - supports deterministic cursor pagination.
 
 ## Request/Response Contract Notes
 
@@ -51,7 +73,7 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 ### CLI Jobs
 
 - `python -m app.jobs.run_phase2_extraction`
-- `python -m app.jobs.run_digest`
+- `python -m app.jobs.run_digest` (deterministic selection/state + optional LLM synthesis with strict validation/fallback)
 - `python -m app.jobs.test_openai_extract`
 - `python -m app.jobs.reset_dev_schema`
 - `python -m app.jobs.clear_all_but_raw_messages`
@@ -65,4 +87,4 @@ This API supports wire-bulletin ingestion and operational processing jobs.
 ## Out of Scope (Current API Surface)
 
 - No public external-validation endpoint yet.
-- No retrieval endpoint family documented in current implementation.
+- No broad query API family beyond `GET /api/feed/events`.

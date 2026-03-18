@@ -1,3 +1,5 @@
+"""Prompt rendering utilities for extraction-stage LLM calls."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

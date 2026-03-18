@@ -40,6 +40,17 @@ class TelegramIngestPayload(BaseModel):
     forwarded_from_if_available: str | None = None
 
 
+class SourceIngestPayload(BaseModel):
+    source_type: str
+    source_stream_id: str
+    source_stream_name: str | None = None
+    source_message_id: str
+    message_timestamp_utc: datetime
+    raw_text: str
+    raw_entities_if_available: Any | None = None
+    forwarded_from_if_available: str | None = None
+
+
 class ExtractionEntities(BaseModel):
     countries: list[str] = Field(default_factory=list)
     orgs: list[str] = Field(default_factory=list)

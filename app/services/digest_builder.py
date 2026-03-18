@@ -1,7 +1,12 @@
 """
 Transitional compatibility shim for legacy service imports.
 
-Authoritative digest build/render implementation lives in `app.digest.*`.
+Authoritative digest composition now lives in `app.digest.*` and includes:
+- deterministic source event preparation / pre-dedupe,
+- optional LLM synthesis with strict validation,
+- deterministic fallback composition.
+
+This shim remains a thin delegator to canonical digest modules.
 Do not add business logic here; keep this module as a thin delegator only.
 """
 

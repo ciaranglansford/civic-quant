@@ -28,7 +28,7 @@ For operational execution details, see:
 7. Strict schema validation runs before persistence.
 8. Structured extraction is persisted (`extractions` typed fields + payload/metadata JSON).
 9. Deterministic routing + event clustering persist `routing_decisions`, `events`, and `event_messages`.
-10. Scheduled digest job builds event-level report and persists `published_posts`.
+10. Scheduled digest job performs deterministic event selection + pre-dedupe, optional LLM synthesis, strict validation/fallback, and persists `published_posts`.
 
 ## Execution Touchpoints by Stage
 
@@ -103,12 +103,14 @@ For operational execution details, see:
 ### Stage 8: Scheduled Reporting
 - Responsible module/job:
   - `app/jobs/run_digest.py`
-  - `app/services/digest_runner.py`
+  - `app/digest/orchestrator.py`
+  - `app/digest/builder.py`
+  - `app/digest/synthesizer.py`
 - Local command:
   - `python -m app.jobs.run_digest`
 - Observable outputs:
-  - logs: publish/skip lines
-  - DB: `published_posts`
+  - logs: synthesis fallback reasons, publish/skip lines
+  - DB: `digest_artifacts`, `published_posts`
 
 ## Target-State Staged Pipeline
 
@@ -160,10 +162,10 @@ For operational execution details, see:
 - Produces: enriched event confidence/corroboration state.
 
 ### 8) Scheduled Reporting
-- What: generate reports from structured event-level data.
+- What: generate synthesized briefings from structured event-level data.
 - Why: avoid reporting from raw noisy bulletin text.
 - Consumes: curated event dataset.
-- Produces: digest/report outputs with audit traceability.
+- Produces: canonical digest artifacts + destination payload publications with ID-level coverage traceability.
 
 ## Key Semantics
 

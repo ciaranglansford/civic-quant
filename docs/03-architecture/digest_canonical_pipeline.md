@@ -2,104 +2,92 @@
 
 ## Invariant
 
-**No publish attempt occurs unless a canonical artifact has already been persisted.**
+No publish attempt occurs unless a digest artifact has already been persisted and committed.
 
 ## Scope
 
-This document describes the digest reporting architecture implemented for v1:
-- Canonical digest generation is destination-agnostic.
-- Canonical text rendering is deterministic.
-- Destination publishing is adapter-based.
-- Telegram is implemented.
-- X is placeholder/deferred only.
+This document covers architecture boundaries for the digest subsystem in `app/digest/`.
+
+Current architecture is hybrid:
+- deterministic event selection, coverage tracking, and publication state updates
+- LLM-assisted synthesis for semantic merge and editorial composition
 
 ## Implementation Home
 
-- Digest implementation package: `app/digest/`
-  - `types.py` - canonical digest structure
-  - `query.py` - deterministic event selection
-  - `builder.py` - canonical digest model generation
-  - `renderer_text.py` - deterministic canonical plain-text rendering
-  - `artifact_store.py` - canonical artifact persistence
-  - `dedupe.py` - minimal per-destination dedupe checks
-  - `orchestrator.py` - pipeline orchestration
-  - `adapters/telegram.py` - Telegram publishing adapter
-  - `adapters/x_placeholder.py` - deferred X placeholder
-- Job entrypoint: `app/jobs/run_digest.py`
+- `app/digest/query.py` - deterministic event selection
+- `app/digest/builder.py` - source event modeling + deterministic pre-dedupe + deterministic fallback composition
+- `app/digest/synthesizer.py` - LLM synthesis orchestration + strict validation + fallback routing
+- `app/digest/renderer_text.py` - canonical text rendering
+- `app/digest/artifact_store.py` - artifact persistence and deterministic input hashing
+- `app/digest/orchestrator.py` - end-to-end pipeline orchestration
+- `app/digest/adapters/*` - destination rendering/transport only
 
-Transitional compatibility shims:
+Transitional service shims remain in:
 - `app/services/digest_query.py`
 - `app/services/digest_builder.py`
 - `app/services/digest_runner.py`
-- `app/services/telegram_publisher.py`
 
-## Schema Adoption Reality (Local/Dev)
+## Canonical Semantics
 
-- The repo currently has no migration framework.
-- `create_all` does not alter existing tables/columns.
-- Local/dev adoption step for this refactor:
-  - `python -m app.jobs.reset_dev_schema`
-- `app/jobs/reset_dev_schema.py` already exists and performs destructive drop/create.
+Canonical digest semantics now include:
+- `source_events` (selected source rows)
+- `top_developments`
+- `sections`
+- `covered_event_ids`
 
-## Deterministic Contract
+Key rule:
+- each rendered bullet carries explicit `source_event_ids`
+- merged bullets can represent multiple source events
+- successful publish marks all `covered_event_ids`
 
-- Window is frozen at run start in UTC with second precision.
-- Inclusion rule:
-  - include event iff `last_updated_at` in `[window_start_utc, window_end_utc)`.
-- Digest meaning:
-  - events created or materially updated during this window.
-- Re-entry:
-  - event can appear in later digest if updated into later window.
-- Topic ordering:
-  - alphabetical by normalized topic label.
-- Item ordering:
-  - `last_updated_at` descending, then `event_id` ascending.
-- Canonical text:
-  - no runtime-generated timestamps or volatile metadata.
-  - if window metadata is present, it uses frozen window bounds only.
-- No-interpretation behavior:
-  - informational only, no investment advice.
+## Deterministic vs LLM Responsibilities
 
-## Artifact-First Flow
+Deterministic:
+- window freezing and event selection filters
+- pre-dedupe by claim/fingerprint/normalized summary
+- synthesis output validation
+- artifact identity (`input_hash`) and rerun dedupe
+- publication status writes and event published-flag updates
 
-1. Freeze window.
-2. Query events by deterministic rule.
-3. Build canonical digest model.
-4. Render canonical plain text.
-5. Persist canonical artifact (`digest_artifacts`) and commit.
-6. Only then publish through enabled adapters.
-7. Record per-destination outcome rows in `published_posts`.
+LLM:
+- semantic same-story merging
+- composition of top developments and topic bullets
+- wording quality under truth-model constraints
 
-## Adapter Responsibilities
+## Adapter Boundary
 
-- Adapters are responsible for:
-  - destination payload rendering from canonical inputs,
-  - transport API interaction,
-  - returning destination status metadata.
-- Adapters are not responsible for:
-  - event selection,
-  - digest semantics,
-  - canonical hashing policy.
+Adapters are presentation/transport layers only.
 
-### Telegram Presentation Boundary
+Adapters must not decide:
+- top-development selection
+- dedupe semantics
+- source coverage tracking
 
-- Canonical text artifact remains plain, deterministic, and destination-agnostic.
-- Telegram adapter renders a Telegram-specific HTML payload from canonical digest inputs.
-- Telegram presentation enhancements (title, compact metadata, top developments, section styling, footer) are adapter-only concerns.
-- Top developments are selected deterministically from digest items using:
-  - `last_updated_at` descending, then `event_id` ascending.
-- Telegram payload hash is computed from the final Telegram-rendered payload and stored in `published_posts.content_hash`.
+Adapters can decide:
+- destination formatting (for example Telegram HTML)
+- transport API retries/error mapping
 
-## Idempotency / Rerun Behavior
+## Artifact Identity and Idempotency
 
-- Artifact identity is canonical hash of canonical text.
-- Destination payload identity is payload hash.
-- Rerun behavior per artifact+destination:
-  - `published` -> skip.
-  - `failed` -> retry.
+Digest artifacts use:
+- `input_hash`: stable hash of selected source events + synthesis inputs
+- `canonical_hash`: hash of rendered canonical text
 
-## Deferred Follow-Up
+Rerun behavior:
+- existing `published` for artifact+destination -> skip
+- existing `failed` for artifact+destination -> retry
 
-- Real X publishing implementation.
-- Full run/artifact/publication/attempt schema split.
-- Advanced dedupe and retry policy tuning.
+Why `input_hash`:
+- canonical prose can vary between synthesis retries
+- source-input identity remains stable and deterministic
+
+## Truth Model
+
+Digest output remains a reported-claims briefing:
+- does not assert external confirmation
+- should preserve uncertainty markers from source material when available
+- should not manufacture certainty
+
+## Operational Note
+
+The repository currently has no migration framework. Schema changes (for example `digest_artifacts.input_hash`) require local schema reset/recreate workflows in dev environments.

@@ -1,3 +1,5 @@
+"""Deterministic digest event selection queries."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta

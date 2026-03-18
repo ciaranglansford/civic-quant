@@ -160,8 +160,12 @@ ovelty_cluster_key`
 
 ### Reporting Contract (`published_posts`)
 
-- Reports are generated from structured event data.
-- Publication records are persisted for auditability and dedup behavior.
+- Reports are generated from structured event data via canonical digest composition.
+- Publication records are persisted for auditability and destination rerun behavior.
+- Digest artifact identity now has two hashes:
+  - `digest_artifacts.input_hash` (stable source-input identity)
+  - `digest_artifacts.canonical_hash` (rendered canonical text hash)
+- `published_posts` rows reference `artifact_id` and capture destination status transitions (`published`, `failed`, `deferred`).
 
 ### Reprocessability Contract
 

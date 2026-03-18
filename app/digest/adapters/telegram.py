@@ -1,14 +1,19 @@
+"""Telegram adapter for digest payload rendering and transport.
+
+Digest semantics (top developments, section membership, source coverage) are
+provided by `CanonicalDigest` and must not be recomputed here.
+"""
+
 from __future__ import annotations
 
 import html
 import logging
 import re
-from collections.abc import Sequence
 
 import httpx
 
 from ...config import Settings, get_settings
-from ..types import CanonicalDigest, DigestItem
+from ..types import CanonicalDigest
 from .base import PublishResult
 
 
@@ -19,8 +24,7 @@ _WS_RE = re.compile(r"\s+")
 
 
 def _clean_summary_for_display(summary: str) -> str:
-    cleaned = _WS_RE.sub(" ", (summary or "").strip())
-    return cleaned
+    return _WS_RE.sub(" ", (summary or "").strip())
 
 
 def _format_window_line(digest: CanonicalDigest) -> str:
@@ -35,18 +39,8 @@ def _format_window_line(digest: CanonicalDigest) -> str:
 def _topics_line(digest: CanonicalDigest) -> str:
     if not digest.sections:
         return "Topics: none"
-    parts = [f"{section.topic_label} {section.item_count}" for section in digest.sections]
-    return f"Topics: {' • '.join(parts)}"
-
-
-def _top_developments(digest: CanonicalDigest, limit: int = 3) -> Sequence[DigestItem]:
-    items = [item for section in digest.sections for item in section.items]
-    items_sorted = sorted(
-        items,
-        key=lambda item: (item.last_updated_at, -item.event_id),
-        reverse=True,
-    )
-    return items_sorted[:limit]
+    parts = [f"{section.topic_label} {section.source_event_count}" for section in digest.sections]
+    return f"Topics: {' | '.join(parts)}"
 
 
 def render_telegram_payload(digest: CanonicalDigest) -> str:
@@ -54,21 +48,20 @@ def render_telegram_payload(digest: CanonicalDigest) -> str:
     lines.append("<b>News Digest</b>")
     lines.append("")
     lines.append(f"<i>{html.escape(_format_window_line(digest))}</i>")
-    lines.append(f"<i>{html.escape(f'Events: {digest.total_events}')}</i>")
+    lines.append(f"<i>{html.escape(f'Covered events: {digest.total_events}')}</i>")
     lines.append(f"<i>{html.escape(_topics_line(digest))}</i>")
 
-    top_items = _top_developments(digest, limit=3)
-    if top_items:
+    if digest.top_developments:
         lines.append("")
         lines.append("<b>Top developments</b>")
-        for item in top_items:
-            lines.append(f"- {html.escape(_clean_summary_for_display(item.summary_1_sentence))}")
+        for bullet in digest.top_developments:
+            lines.append(f"- {html.escape(_clean_summary_for_display(bullet.text))}")
 
     for section in digest.sections:
         lines.append("")
         lines.append(f"<b>{html.escape(section.topic_label)}</b>")
-        for item in section.items:
-            lines.append(f"- {html.escape(_clean_summary_for_display(item.summary_1_sentence))}")
+        for bullet in section.bullets:
+            lines.append(f"- {html.escape(_clean_summary_for_display(bullet.text))}")
 
     lines.append("")
     lines.append("<i>- Not investment advice.</i>")
@@ -89,13 +82,17 @@ def send_telegram_text(text: str, settings: Settings | None = None) -> str | Non
     }
 
     with httpx.Client(timeout=20.0) as client:
-        r = client.post(url, json=payload)
-        if r.status_code >= 400:
-            logger.error("telegram_publish_failed status=%s body=%s", r.status_code, r.text[:500])
-            r.raise_for_status()
-        logger.info("telegram_publish_ok status=%s", r.status_code)
+        response = client.post(url, json=payload)
+        if response.status_code >= 400:
+            logger.error(
+                "telegram_publish_failed status=%s body=%s",
+                response.status_code,
+                response.text[:500],
+            )
+            response.raise_for_status()
+        logger.info("telegram_publish_ok status=%s", response.status_code)
         try:
-            body = r.json()
+            body = response.json()
         except ValueError:
             return None
         result = body.get("result") if isinstance(body, dict) else None

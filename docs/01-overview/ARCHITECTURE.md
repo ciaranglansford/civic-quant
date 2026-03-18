@@ -22,7 +22,7 @@ Define the pipeline architecture for a Telegram wire-bulletin intelligence syste
 3. Normalization creates deterministic `normalized_text`.
 4. Phase2 job selects eligible raw messages, runs OpenAI extraction, validates strict schema, and persists structured extraction fields.
 5. Routing + event manager cluster observations into canonical events.
-6. Digest job reports from event-level data.
+6. Digest job runs deterministic event selection and optional LLM synthesis to publish a structured briefing.
 
 ### Storage Model (Implemented)
 
@@ -70,6 +70,8 @@ Define the pipeline architecture for a Telegram wire-bulletin intelligence syste
 - Confirm, deny, or enrich prior reported claims in later workflows.
 
 ### Stage 8: Scheduled Reporting
+- Select event candidates deterministically (window + thresholds + publication eligibility).
+- Synthesize digest composition (top developments + topic bullets) with strict validation and deterministic fallback.
 - Generate reporting from structured event-level data, not raw bulletin text.
 
 ## Future Optional Enhancements
@@ -90,3 +92,4 @@ Define the pipeline architecture for a Telegram wire-bulletin intelligence syste
 7. Events, not individual messages, are the downstream unit for indexing/reporting.
 8. Validation/enrichment happens later and selectively.
 9. Scheduled reporting consumes structured event data, not raw messages.
+10. LLM can shape digest wording/semantic merge but cannot control publication state transitions.

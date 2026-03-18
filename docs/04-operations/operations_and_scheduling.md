@@ -20,6 +20,11 @@ Implementation ownership:
 - Job entrypoint remains `app/jobs/run_digest.py`.
 - Legacy `app/services/digest_*` and `app/services/telegram_publisher.py` are transitional shims.
 
+Digest composition details:
+- deterministic selection and pre-dedupe happen before synthesis
+- LLM synthesis is optional and guarded by strict validation
+- deterministic fallback is used on disabled/invalid/error cases
+
 ## Schema Adoption (Digest Refactor)
 
 - This repository currently has no migration framework.
@@ -41,6 +46,7 @@ Implementation ownership:
   - `uvicorn app.main:app --reload`
 - Expected outputs:
   - API responds on `/health`
+  - Ingest endpoints available: `/ingest/telegram` and `/ingest/source`
   - DB tables available
 
 3. Start listener (optional; Stage 1 capture source)
@@ -110,13 +116,22 @@ Use preserve-raw reprocess for prompt/routing/event-logic iteration. Use full re
 
 ### Digest Rerun / Idempotency Behavior
 - Canonical artifact is persisted before destination publish attempts.
-- Telegram-specific payload formatting does not change canonical artifact semantics.
-- Telegram "Top developments" list is deterministic:
-  - `last_updated_at` descending, then `event_id` ascending.
+- Canonical digest semantics (top developments, sections, coverage IDs) are decided before adapter rendering.
+- Adapter-specific payload formatting does not alter canonical coverage semantics.
+- Artifact identity uses deterministic `input_hash` from source inputs and synthesis settings, with canonical hash fallback.
 - If a destination already has `published` status for an artifact, rerun skips that destination.
 - If a destination has `failed` status for an artifact, rerun retries that destination.
 - Telegram is implemented now via adapter.
 - X adapter is placeholder/deferred only and is disabled by default.
+
+## Digest Synthesis Runtime Flags
+
+- `DIGEST_LLM_ENABLED`
+- `DIGEST_OPENAI_MODEL`
+- `DIGEST_OPENAI_TIMEOUT_SECONDS`
+- `DIGEST_OPENAI_MAX_RETRIES`
+- `DIGEST_TOP_DEVELOPMENTS_LIMIT`
+- `DIGEST_SECTION_BULLET_LIMIT`
 
 ## Targeted Test Commands
 

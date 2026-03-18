@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     vip_digest_hours: int = 4
     tg_bot_token: str | None = None
     tg_vip_chat_id: str | None = None
+    digest_llm_enabled: bool = False
+    digest_openai_model: str | None = None
+    digest_openai_timeout_seconds: float = 30.0
+    digest_openai_max_retries: int = 2
+    digest_top_developments_limit: int = 3
+    digest_section_bullet_limit: int = 6
 
     # Phase 2 extraction
     phase2_extraction_enabled: bool = False
