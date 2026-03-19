@@ -85,7 +85,117 @@ _COUNTRY_ALIASES: dict[str, str] = {
     "eu": "European Union",
 }
 
-CANONICALIZER_VERSION = "canon_v2"
+_PLACEHOLDER_ENTITY_VALUES: frozenset[str] = frozenset(
+    {
+        "multiple countries",
+        "multiple country",
+        "various countries",
+        "several countries",
+        "multiple entities",
+        "various entities",
+        "unknown",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "not specified",
+        "tbd",
+    }
+)
+_ACRONYM_TOKENS: frozenset[str] = frozenset(
+    {
+        "AP",
+        "BOE",
+        "ECB",
+        "EU",
+        "FED",
+        "FOMC",
+        "IAEA",
+        "IMF",
+        "NATO",
+        "NIOC",
+        "OPEC",
+        "RBNZ",
+        "UN",
+        "UK",
+        "US",
+    }
+)
+_LOWERCASE_TITLE_TOKENS: frozenset[str] = frozenset({"a", "an", "and", "for", "in", "of", "on", "the", "to"})
+_ORG_INSTITUTION_MARKERS: tuple[str, ...] = (
+    "agency",
+    "authority",
+    "bank of",
+    "central bank",
+    "council",
+    "department",
+    "federal reserve",
+    "government",
+    "iaea",
+    "ministry",
+    "nato",
+    "office",
+    "pentagon",
+    "reserve bank",
+    "treasury",
+    "united nations",
+)
+_KNOWN_COMPANY_NAMES: frozenset[str] = frozenset(
+    {
+        "amazon",
+        "coinbase",
+        "fedex",
+        "google",
+        "kalshi",
+    }
+)
+_ORG_COMPANY_MARKERS: tuple[str, ...] = (
+    " inc",
+    " llc",
+    " ltd",
+    " plc",
+    " corp",
+    " corporation",
+    " holdings",
+    " technologies",
+)
+_STRESS_RELATION_TYPES: frozenset[str] = frozenset(
+    {
+        "conflict_with",
+        "curtails",
+        "disrupts_logistics_of",
+        "increases_spending_on",
+        "restricts_export_of",
+        "sanctions",
+    }
+)
+_EASING_RELATION_TYPES: frozenset[str] = frozenset({"contradicts", "expands_production_of", "supports"})
+_DIRECTIONALITY_SUPPORT_TAG_TYPES: frozenset[str] = frozenset(
+    {"conflict", "event_mechanisms", "logistics", "policy", "production", "sanctions", "spending", "strategic", "weather"}
+)
+_STRESS_SUMMARY_MARKERS: tuple[str, ...] = (
+    "attack",
+    "conflict",
+    "curtail",
+    "disrupt",
+    "escalat",
+    "halt",
+    "restrict",
+    "sanction",
+    "shortage",
+    "strike",
+)
+_EASING_SUMMARY_MARKERS: tuple[str, ...] = (
+    "ceasefire",
+    "de-escalat",
+    "expand",
+    "lift",
+    "resume",
+    "supports",
+)
+_MAX_CANONICAL_RELATIONS = 3
+
+CANONICALIZER_VERSION = "canon_v3"
 FINGERPRINT_VERSION = "v2"
 _MISSING_TOKEN = "~"
 
@@ -98,6 +208,20 @@ class FingerprintComputation:
     hard_identity_sufficient: bool
     action_class: str
     event_time_bucket: str
+
+
+@dataclass(frozen=True)
+class StructuredListDiagnostics:
+    emitted_count: int
+    valid_count: int
+    dropped_count: int
+    dropped_reasons: list[str]
+
+
+@dataclass(frozen=True)
+class StructuredContractDiagnostics:
+    tags: StructuredListDiagnostics
+    relations: StructuredListDiagnostics
 
 
 def _normalize_spaces(value: str) -> str:
@@ -118,6 +242,65 @@ def _canonical_country(value: str) -> str:
     alias_key = cleaned.lower()
     canonical = _COUNTRY_ALIASES.get(alias_key, cleaned)
     return canonical.title() if canonical.islower() else canonical
+
+
+def _canonical_entity_value(value: str) -> str:
+    cleaned = _normalize_spaces(value)
+    if not cleaned:
+        return ""
+    if cleaned.lower() in _PLACEHOLDER_ENTITY_VALUES:
+        return ""
+    if not cleaned.isupper():
+        return cleaned
+
+    tokens = cleaned.split(" ")
+    rendered: list[str] = []
+    for token in tokens:
+        upper = token.upper()
+        if upper in _ACRONYM_TOKENS:
+            rendered.append(upper)
+            continue
+        if upper in _LOWERCASE_TITLE_TOKENS:
+            rendered.append(upper.lower())
+            continue
+        if len(tokens) == 1 and len(upper) <= 4:
+            rendered.append(upper)
+            continue
+        rendered.append(upper.capitalize())
+    return " ".join(rendered)
+
+
+def _canonical_named_entities(values: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        cleaned = _canonical_entity_value(raw)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cleaned)
+    return sorted(out, key=str.lower)
+
+
+def _organization_tag_family(value: str) -> str:
+    cleaned = _canonical_entity_value(value)
+    lowered = cleaned.lower()
+    if lowered in _KNOWN_COMPANY_NAMES:
+        return "companies"
+    if any(marker in lowered for marker in _ORG_INSTITUTION_MARKERS):
+        return "organizations"
+    if any(marker in lowered for marker in _ORG_COMPANY_MARKERS):
+        return "companies"
+    return "companies"
+
+
+def _canonical_relation_endpoint_value(entity_type: str, value: str) -> str:
+    if entity_type in {"country", "state"}:
+        return _canonical_country(value)
+    return _canonical_entity_value(value)
 
 
 def _canonical_countries(values: Iterable[str]) -> list[str]:
@@ -442,41 +625,138 @@ def _canonical_impact_inputs(raw_inputs: object) -> ExtractionImpactInputs:
     )
 
 
-def _canonical_tags(raw_tags: object, *, directionality: str | None) -> tuple[list[ExtractionTag], int]:
-    canonical_tags: list[ExtractionTag] = []
-    seen: set[tuple[str, str, str]] = set()
-    dropped = 0
+def _has_directionality_support(
+    directionality: str,
+    *,
+    raw_tags: object,
+    raw_relations: object,
+    summary: object,
+) -> bool:
+    if directionality == "neutral":
+        return True
+
+    summary_text = _normalize_spaces(summary) if isinstance(summary, str) else ""
+    summary_lower = summary_text.lower()
+    markers = _STRESS_SUMMARY_MARKERS if directionality == "stress" else _EASING_SUMMARY_MARKERS
+    if any(marker in summary_lower for marker in markers):
+        return True
 
     tag_items = raw_tags if isinstance(raw_tags, list) else []
     for item in tag_items:
         if not isinstance(item, dict):
-            dropped += 1
+            continue
+        tag_type = normalize_tag_family(item.get("tag_type") if isinstance(item.get("tag_type"), str) else None)
+        if tag_type and tag_type in _DIRECTIONALITY_SUPPORT_TAG_TYPES:
+            return True
+
+    relation_items = raw_relations if isinstance(raw_relations, list) else []
+    target_relations = _STRESS_RELATION_TYPES if directionality == "stress" else _EASING_RELATION_TYPES
+    for item in relation_items:
+        if not isinstance(item, dict):
+            continue
+        relation_type = normalize_relation_type(
+            item.get("relation_type") if isinstance(item.get("relation_type"), str) else None
+        )
+        if relation_type and relation_type in target_relations:
+            return True
+    return False
+
+
+def _resolve_directionality(
+    *,
+    raw_directionality: object,
+    raw_tags: object,
+    raw_relations: object,
+    summary: object,
+) -> tuple[str, list[str]]:
+    rules: list[str] = []
+
+    directionality = normalize_directionality(raw_directionality if isinstance(raw_directionality, str) else None)
+    if isinstance(raw_directionality, str) and directionality is None:
+        rules.append("directionality_invalid_dropped")
+    elif isinstance(raw_directionality, str) and raw_directionality != directionality:
+        rules.append("directionality_normalization")
+
+    if directionality in {"stress", "easing"} and not _has_directionality_support(
+        directionality,
+        raw_tags=raw_tags,
+        raw_relations=raw_relations,
+        summary=summary,
+    ):
+        directionality = "neutral"
+        rules.append("directionality_demoted_without_support")
+
+    if directionality is None:
+        directionality = "neutral"
+        rules.append("directionality_defaulted_neutral")
+
+    return directionality, rules
+
+
+def _diagnostics(
+    *,
+    emitted_count: int,
+    valid_count: int,
+    dropped_reasons: list[str],
+) -> StructuredListDiagnostics:
+    dropped_count = max(0, emitted_count - valid_count)
+    return StructuredListDiagnostics(
+        emitted_count=emitted_count,
+        valid_count=valid_count,
+        dropped_count=dropped_count,
+        dropped_reasons=sorted(set(dropped_reasons)),
+    )
+
+
+def _canonical_tags(
+    raw_tags: object,
+    *,
+    directionality: str,
+) -> tuple[list[ExtractionTag], StructuredListDiagnostics]:
+    canonical_tags: list[ExtractionTag] = []
+    seen: set[tuple[str, str, str]] = set()
+    dropped_reasons: list[str] = []
+    valid_count = 0
+
+    tag_items = raw_tags if isinstance(raw_tags, list) else []
+    emitted_count = len(tag_items)
+    for item in tag_items:
+        if not isinstance(item, dict):
+            dropped_reasons.append("invalid_shape")
             continue
 
         tag_type = normalize_tag_family(item.get("tag_type") if isinstance(item.get("tag_type"), str) else None)
         tag_value = normalize_tag_value(item.get("tag_value") if isinstance(item.get("tag_value"), str) else None)
         tag_source = normalize_tag_source(item.get("tag_source") if isinstance(item.get("tag_source"), str) else None)
-        if not tag_type or not tag_value or not tag_source:
-            dropped += 1
+        if not tag_type:
+            dropped_reasons.append("invalid_tag_type")
+            continue
+        if not tag_value:
+            dropped_reasons.append("invalid_tag_value")
+            continue
+        if not tag_source:
+            dropped_reasons.append("invalid_tag_source")
             continue
 
         if tag_type == "directionality":
             normalized_dir = normalize_directionality(tag_value)
             if not normalized_dir:
-                dropped += 1
+                dropped_reasons.append("invalid_directionality_tag_value")
                 continue
-            tag_value = normalized_dir
+            tag_value = directionality or normalized_dir
+            tag_source = "inferred"
         elif tag_type == "countries":
             tag_value = _canonical_country(tag_value)
         else:
-            tag_value = _normalize_spaces(tag_value)
+            tag_value = _canonical_entity_value(tag_value)
         if not tag_value:
-            dropped += 1
+            dropped_reasons.append("invalid_tag_value")
             continue
 
-        confidence = _safe_confidence(item.get("confidence"))
+        confidence = None if tag_type == "directionality" else _safe_confidence(item.get("confidence"))
         dedupe_key = (tag_type, tag_value.lower(), tag_source)
         if dedupe_key in seen:
+            dropped_reasons.append("duplicate_tag")
             continue
         seen.add(dedupe_key)
         canonical_tags.append(
@@ -487,33 +767,39 @@ def _canonical_tags(raw_tags: object, *, directionality: str | None) -> tuple[li
                 confidence=confidence,
             )
         )
+        valid_count += 1
 
-    if directionality:
-        dedupe_key = ("directionality", directionality.lower(), "observed")
-        if dedupe_key not in seen:
-            canonical_tags.append(
-                ExtractionTag(
-                    tag_type="directionality",
-                    tag_value=directionality,
-                    tag_source="observed",
-                    confidence=None,
-                )
+    dedupe_key = ("directionality", directionality.lower(), "inferred")
+    if dedupe_key not in seen:
+        canonical_tags.append(
+            ExtractionTag(
+                tag_type="directionality",
+                tag_value=directionality,
+                tag_source="inferred",
+                confidence=None,
             )
-            seen.add(dedupe_key)
+        )
+        seen.add(dedupe_key)
 
     canonical_tags.sort(key=lambda tag: (tag.tag_type, tag.tag_value.lower(), tag.tag_source))
-    return canonical_tags, dropped
+    return canonical_tags, _diagnostics(
+        emitted_count=emitted_count,
+        valid_count=valid_count,
+        dropped_reasons=dropped_reasons,
+    )
 
 
-def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation], int]:
+def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation], StructuredListDiagnostics]:
     canonical_relations: list[ExtractionRelation] = []
     seen: set[tuple[str, str, str, str, str, str, int]] = set()
-    dropped = 0
+    dropped_reasons: list[str] = []
+    valid_count = 0
 
     relation_items = raw_relations if isinstance(raw_relations, list) else []
+    emitted_count = len(relation_items)
     for item in relation_items:
         if not isinstance(item, dict):
-            dropped += 1
+            dropped_reasons.append("invalid_shape")
             continue
 
         subject_type = normalize_relation_entity_type(
@@ -535,15 +821,29 @@ def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation
             item.get("relation_source") if isinstance(item.get("relation_source"), str) else None
         )
 
-        if not (
-            subject_type
-            and object_type
-            and relation_type
-            and subject_value
-            and object_value
-            and relation_source
-        ):
-            dropped += 1
+        if not subject_type:
+            dropped_reasons.append("invalid_subject_type")
+            continue
+        if not object_type:
+            dropped_reasons.append("invalid_object_type")
+            continue
+        if not relation_type:
+            dropped_reasons.append("invalid_relation_type")
+            continue
+        if not subject_value:
+            dropped_reasons.append("invalid_subject_value")
+            continue
+        if not object_value:
+            dropped_reasons.append("invalid_object_value")
+            continue
+        if not relation_source:
+            dropped_reasons.append("invalid_relation_source")
+            continue
+
+        subject_value = _canonical_relation_endpoint_value(subject_type, subject_value)
+        object_value = _canonical_relation_endpoint_value(object_type, object_value)
+        if not subject_value or not object_value:
+            dropped_reasons.append("invalid_relation_value")
             continue
 
         inference_level = inference_level_for_source(relation_source)
@@ -558,6 +858,10 @@ def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation
             inference_level,
         )
         if dedupe_key in seen:
+            dropped_reasons.append("duplicate_relation")
+            continue
+        if len(canonical_relations) >= _MAX_CANONICAL_RELATIONS:
+            dropped_reasons.append("relation_limit_exceeded")
             continue
         seen.add(dedupe_key)
         canonical_relations.append(
@@ -572,6 +876,7 @@ def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation
                 confidence=confidence,
             )
         )
+        valid_count += 1
 
     canonical_relations.sort(
         key=lambda relation: (
@@ -584,7 +889,26 @@ def _canonical_relations(raw_relations: object) -> tuple[list[ExtractionRelation
             int(relation.inference_level or 0),
         )
     )
-    return canonical_relations, dropped
+    return canonical_relations, _diagnostics(
+        emitted_count=emitted_count,
+        valid_count=valid_count,
+        dropped_reasons=dropped_reasons,
+    )
+
+
+def summarize_structured_contract(payload: dict) -> StructuredContractDiagnostics:
+    """Summarize emitted/valid/dropped structured items from raw extraction payload."""
+    raw_tags = payload.get("tags")
+    raw_relations = payload.get("relations")
+    directionality, _ = _resolve_directionality(
+        raw_directionality=payload.get("directionality"),
+        raw_tags=raw_tags,
+        raw_relations=raw_relations,
+        summary=payload.get("summary_1_sentence"),
+    )
+    _, tag_diagnostics = _canonical_tags(raw_tags, directionality=directionality)
+    _, relation_diagnostics = _canonical_relations(raw_relations)
+    return StructuredContractDiagnostics(tags=tag_diagnostics, relations=relation_diagnostics)
 
 
 def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], FingerprintComputation]:
@@ -614,12 +938,12 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
         rules.append("ticker_normalization")
     entities["tickers"] = tickers
 
-    orgs = _canonical_text_list(entities.get("orgs", []))
+    orgs = _canonical_named_entities(entities.get("orgs", []))
     if orgs != entities.get("orgs", []):
         rules.append("org_text_normalization")
     entities["orgs"] = orgs
 
-    people = _canonical_text_list(entities.get("people", []))
+    people = _canonical_named_entities(entities.get("people", []))
     if people != entities.get("people", []):
         rules.append("person_text_normalization")
     entities["people"] = people
@@ -657,12 +981,13 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
         rules.append("event_type_normalization")
     canonical_payload["event_type"] = event_type
 
-    directionality_raw = canonical_payload.get("directionality")
-    directionality = normalize_directionality(directionality_raw if isinstance(directionality_raw, str) else None)
-    if isinstance(directionality_raw, str) and directionality is None:
-        rules.append("directionality_invalid_dropped")
-    elif isinstance(directionality_raw, str) and directionality_raw != directionality:
-        rules.append("directionality_normalization")
+    directionality, directionality_rules = _resolve_directionality(
+        raw_directionality=canonical_payload.get("directionality"),
+        raw_tags=canonical_payload.get("tags"),
+        raw_relations=canonical_payload.get("relations"),
+        summary=canonical_payload.get("summary_1_sentence"),
+    )
+    rules.extend(directionality_rules)
     canonical_payload["directionality"] = directionality
 
     impact_inputs_raw = canonical_payload.get("impact_inputs")
@@ -671,8 +996,8 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
         rules.append("impact_inputs_normalization")
 
     tags_raw = canonical_payload.get("tags")
-    canonical_tags, dropped_tag_count = _canonical_tags(tags_raw, directionality=directionality)
-    if dropped_tag_count > 0:
+    canonical_tags, tag_diagnostics = _canonical_tags(tags_raw, directionality=directionality)
+    if tag_diagnostics.dropped_count > 0:
         rules.append("structured_tags_invalid_dropped")
 
     tag_keys = {(tag.tag_type, tag.tag_value.lower(), tag.tag_source) for tag in canonical_tags}
@@ -689,14 +1014,15 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
             )
         )
         tag_keys.add(key)
-    for company in orgs:
-        key = ("companies", company.lower(), "observed")
+    for org in orgs:
+        tag_family = _organization_tag_family(org)
+        key = (tag_family, org.lower(), "observed")
         if key in tag_keys:
             continue
         canonical_tags.append(
             ExtractionTag(
-                tag_type="companies",
-                tag_value=company,
+                tag_type=tag_family,
+                tag_value=org,
                 tag_source="observed",
                 confidence=None,
             )
@@ -725,8 +1051,8 @@ def canonicalize_extraction(payload: dict) -> tuple[ExtractionJson, list[str], F
     canonical_payload["tags"] = [tag.model_dump(mode="json") for tag in canonical_tags]
 
     relations_raw = canonical_payload.get("relations")
-    canonical_relations, dropped_relation_count = _canonical_relations(relations_raw)
-    if dropped_relation_count > 0:
+    canonical_relations, relation_diagnostics = _canonical_relations(relations_raw)
+    if relation_diagnostics.dropped_count > 0:
         rules.append("structured_relations_invalid_dropped")
     canonical_payload["relations"] = [relation.model_dump(mode="json") for relation in canonical_relations]
 

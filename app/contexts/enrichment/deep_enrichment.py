@@ -58,7 +58,7 @@ def _build_downstream_hints(payload: dict) -> list[str]:
             tag_value = str(tag.get("tag_value") or "").strip()
             if not (tag_type and tag_value):
                 continue
-            if tag_type in {"commodities", "sectors", "companies"}:
+            if tag_type in {"commodities", "sectors", "companies", "organizations"}:
                 hints.append(f"Monitor downstream exposure to {tag_value}.")
             if len(hints) >= 6:
                 break

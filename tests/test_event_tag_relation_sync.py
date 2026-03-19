@@ -6,6 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.contexts.extraction.canonicalization import canonicalize_extraction
+from app.contexts.extraction.extraction_validation import parse_and_validate_extraction
 from app.contexts.events.structured_persistence import sync_event_tags_and_relations
 from app.db import Base
 from app.models import Event, EventRelation, EventTag
@@ -174,5 +176,50 @@ def test_sync_replaces_stale_rows_when_event_updates():
             relations = db.query(EventRelation).filter_by(event_id=event.id).all()
             assert [(tag.tag_type, tag.tag_value) for tag in tags] == [("countries", "Saudi Arabia")]
             assert relations == []
+    finally:
+        engine.dispose()
+
+
+def test_extraction_to_canonicalization_to_sync_persists_relation_rows():
+    SessionLocal, engine = _session_factory()
+
+    raw_json = (
+        '{"topic":"geopolitics","event_type":"conflict","directionality":"stress",'
+        '"entities":{"countries":["US","Iran"],"orgs":["PENTAGON"],"people":[],"tickers":[]},'
+        '"affected_countries_first_order":["US","Iran"],"market_stats":[],'
+        '"tags":[{"tag_type":"countries","tag_value":"US","tag_source":"observed","confidence":0.9}],'
+        '"relations":['
+        '{"subject_type":"country","subject_value":"US","relation_type":"conflict_with","object_type":"country","object_value":"Iran","relation_source":"observed","inference_level":0,"confidence":0.9},'
+        '{"subject_type":"country","subject_value":"US","relation_type":"increases_spending_on","object_type":"conflict","object_value":"conflict","relation_source":"inferred","inference_level":2,"confidence":0.7}'
+        '],"impact_inputs":{"severity_cues":[],"economic_relevance_cues":[],"propagation_potential_cues":[],"specificity_cues":[],"novelty_cues":[],"strategic_tag_hits":[]},'
+        '"sentiment":"negative","confidence":0.9,"impact_score":78,"is_breaking":true,"breaking_window":"1h","event_time":"2026-03-19T10:00:00",'
+        '"source_claimed":"Reuters","summary_1_sentence":"U.S. and Iran remain in direct confrontation.","keywords":["Iran"],"event_core":"conflict","event_fingerprint":"candidate"}'
+    )
+
+    try:
+        with SessionLocal() as db:
+            event = Event(
+                event_fingerprint="event-sync-path-1",
+                topic="geopolitics",
+                summary_1_sentence="Initial",
+                impact_score=70.0,
+                is_breaking=True,
+                breaking_window="1h",
+                event_time=datetime.utcnow(),
+                last_updated_at=datetime.utcnow(),
+            )
+            db.add(event)
+            db.flush()
+
+            parsed = parse_and_validate_extraction(raw_json)
+            canonical, _, _ = canonicalize_extraction(parsed)
+            sync_event_tags_and_relations(db, event_id=event.id, extraction=canonical)
+            db.commit()
+
+            relations = db.query(EventRelation).filter_by(event_id=event.id).order_by(EventRelation.id.asc()).all()
+            assert len(relations) == 2
+            assert relations[0].subject_value in {"Iran", "United States"}
+            assert relations[1].inference_level in {0, 1}
+            assert any(rel.relation_source == "inferred" and rel.inference_level == 1 for rel in relations)
     finally:
         engine.dispose()

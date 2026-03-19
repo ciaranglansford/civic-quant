@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ...schemas import (
     ExtractionEntities,
     ExtractionImpactInputs,
-    ExtractionRelation,
-    ExtractionTag,
     MarketStat,
 )
 
@@ -22,8 +20,8 @@ class StrictExtractionJson(BaseModel):
     entities: ExtractionEntities
     affected_countries_first_order: list[str]
     market_stats: list[MarketStat]
-    tags: list[ExtractionTag] = Field(default_factory=list)
-    relations: list[ExtractionRelation] = Field(default_factory=list)
+    tags: list[dict[str, object]] = Field(default_factory=list)
+    relations: list[dict[str, object]] = Field(default_factory=list)
     impact_inputs: ExtractionImpactInputs = Field(default_factory=ExtractionImpactInputs)
     sentiment: str
     confidence: float
@@ -72,11 +70,26 @@ def parse_and_validate_extraction(raw_text: str) -> dict:
     else:
         extraction_payload["event_fingerprint"] = ""
 
+    raw_tags = extraction_payload.get("tags")
+    if not isinstance(raw_tags, list):
+        raw_tags = []
+    raw_relations = extraction_payload.get("relations")
+    if not isinstance(raw_relations, list):
+        raw_relations = []
+
     from ...schemas import ExtractionJson
 
+    # Validate core payload shape with strict ExtractionJson typing while allowing
+    # malformed tag/relation entries to be dropped later during canonicalization.
+    validation_payload = dict(extraction_payload)
+    validation_payload["tags"] = []
+    validation_payload["relations"] = []
     try:
-        model = ExtractionJson.model_validate(extraction_payload)
+        model = ExtractionJson.model_validate(validation_payload)
     except ValidationError as e:
         raise ExtractionValidationError(f"schema_error: {e.errors()[0]['msg']}") from e
-    return model.model_dump(mode="json")
+    payload = model.model_dump(mode="json")
+    payload["tags"] = raw_tags
+    payload["relations"] = raw_relations
+    return payload
 

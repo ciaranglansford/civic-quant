@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -27,6 +28,7 @@ ENRICHMENT_ROUTES: frozenset[str] = frozenset({"store_only", "index_only", "deep
 TAG_FAMILIES: frozenset[str] = frozenset(
     {
         "countries",
+        "organizations",
         "companies",
         "commodities",
         "sectors",
@@ -46,6 +48,7 @@ TAG_FAMILIES: frozenset[str] = frozenset(
 RELATION_ENTITY_TYPES: frozenset[str] = frozenset(
     {
         "country",
+        "organization",
         "company",
         "commodity",
         "sector",
@@ -77,6 +80,11 @@ RELATION_TYPES: frozenset[str] = frozenset(
 
 _TAG_FAMILY_ALIASES = {
     "country": "countries",
+    "organization": "organizations",
+    "org": "organizations",
+    "orgs": "organizations",
+    "institution": "organizations",
+    "agency": "organizations",
     "company": "companies",
     "commodity": "commodities",
     "sector": "sectors",
@@ -85,14 +93,35 @@ _TAG_FAMILY_ALIASES = {
 }
 
 _RELATION_ENTITY_TYPE_ALIASES = {
-    "org": "company",
-    "organization": "company",
+    "org": "organization",
+    "organization": "organization",
+    "institution": "organization",
+    "agency": "organization",
     "country": "country",
     "commodity": "commodity",
     "sector": "sector",
     "company": "company",
     "state": "state",
 }
+
+_WS_RE = re.compile(r"\s+")
+_PLACEHOLDER_VALUES: frozenset[str] = frozenset(
+    {
+        "multiple countries",
+        "multiple country",
+        "various countries",
+        "several countries",
+        "multiple entities",
+        "various entities",
+        "unknown",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "not specified",
+        "tbd",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -105,6 +134,10 @@ def _normalize_key(value: str | None) -> str:
     if value is None:
         return ""
     return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _normalize_spaces(value: str) -> str:
+    return _WS_RE.sub(" ", value.strip())
 
 
 def normalize_event_type(value: str | None) -> str | None:
@@ -161,14 +194,18 @@ def normalize_relation_entity_type(value: str | None) -> str | None:
 def normalize_tag_value(value: str | None) -> str | None:
     if value is None:
         return None
-    cleaned = value.strip()
+    cleaned = _normalize_spaces(value)
+    if cleaned.lower() in _PLACEHOLDER_VALUES:
+        return None
     return cleaned if cleaned else None
 
 
 def normalize_relation_value(value: str | None) -> str | None:
     if value is None:
         return None
-    cleaned = value.strip()
+    cleaned = _normalize_spaces(value)
+    if cleaned.lower() in _PLACEHOLDER_VALUES:
+        return None
     return cleaned if cleaned else None
 
 

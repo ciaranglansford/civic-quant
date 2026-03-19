@@ -173,7 +173,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
             openai_response_id="resp_test_1",
             latency_ms=42,
             retries=0,
-            raw_text='{"topic":"central_banks","entities":{"countries":["U.S."],"orgs":[" ECB "],"people":[],"tickers":["eur"]},"affected_countries_first_order":["usa"],"market_stats":[{"label":"move","value":0.5,"unit":"%","context":"EUR"}],"sentiment":"neutral","confidence":0.9,"impact_score":55,"is_breaking":false,"breaking_window":"none","event_time":"2025-01-01T00:00:00","source_claimed":" ECB ","summary_1_sentence":"ECB says policy may shift.","keywords":["ECB","EUR"],"event_fingerprint":"central_banks|2025-01-01|us|ecb|||eur|policy_shift"}',
+            raw_text='{"topic":"central_banks","event_type":"policy","directionality":"stress","entities":{"countries":["U.S."],"orgs":[" ECB "],"people":[],"tickers":["eur"]},"affected_countries_first_order":["usa"],"market_stats":[{"label":"move","value":0.5,"unit":"%","context":"EUR"}],"tags":[{"tag_type":"countries","tag_value":"U.S.","tag_source":"observed","confidence":0.9},{"tag_type":"directionality","tag_value":"stress","tag_source":"observed","confidence":0.9},{"tag_type":"organizations","tag_value":"ECB","tag_source":"observed","confidence":0.8},{"tag_type":"countries","tag_value":"Multiple Countries","tag_source":"observed","confidence":0.4}],"relations":[{"subject_type":"country","subject_value":"U.S.","relation_type":"increases_spending_on","object_type":"conflict","object_value":"conflict","relation_source":"inferred","inference_level":2,"confidence":0.8},{"subject_type":"country","subject_value":"U.S.","relation_type":"made_up_relation","object_type":"conflict","object_value":"conflict","relation_source":"observed","inference_level":0,"confidence":0.6}],"impact_inputs":{"severity_cues":[],"economic_relevance_cues":[],"propagation_potential_cues":[],"specificity_cues":[],"novelty_cues":[],"strategic_tag_hits":[]},"sentiment":"neutral","confidence":0.9,"impact_score":55,"is_breaking":false,"breaking_window":"none","event_time":"2025-01-01T00:00:00","source_claimed":" ECB ","summary_1_sentence":"ECB says policy may shift and conflict spending may rise.","keywords":["ECB","EUR"],"event_fingerprint":"central_banks|2025-01-01|us|ecb|||eur|policy_shift"}',
         )
 
     monkeypatch.setattr(extraction_llm_client.OpenAiExtractionClient, "extract", fake_extract)
@@ -188,7 +188,7 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
     assert r2.status_code == 200
 
     from app.db import SessionLocal
-    from app.models import EntityMention, Extraction, MessageProcessingState, RawMessage, RoutingDecision
+    from app.models import EntityMention, EventMessage, EventRelation, EventTag, Extraction, MessageProcessingState, RawMessage, RoutingDecision
 
     with SessionLocal() as db:
         raw = db.query(RawMessage).filter(RawMessage.telegram_message_id == "m2").one()
@@ -225,12 +225,30 @@ def test_phase2_processes_message_and_is_idempotent(monkeypatch, client: TestCli
         assert extraction.canonical_payload_hash
         assert extraction.claim_hash
         assert extraction.event_identity_fingerprint_v2 == extraction.event_fingerprint
-        assert extraction.metadata_json["canonicalizer_version"] == "canon_v2"
+        assert extraction.metadata_json["canonicalizer_version"] == "canon_v3"
         assert extraction.metadata_json["canonical_payload_hash"] == extraction.canonical_payload_hash
         assert extraction.metadata_json["claim_hash"] == extraction.claim_hash
+        structured_contract = extraction.metadata_json["structured_contract"]
+        assert structured_contract["tags_emitted_count"] == 4
+        assert structured_contract["tags_valid_count"] == 3
+        assert structured_contract["tags_dropped_count"] == 1
+        assert structured_contract["relations_emitted_count"] == 2
+        assert structured_contract["relations_valid_count"] == 1
+        assert structured_contract["relations_dropped_count"] == 1
+        assert "invalid_tag_value" in structured_contract["dropped_tag_reasons"]
+        assert "invalid_relation_type" in structured_contract["dropped_relation_reasons"]
+        assert len(extraction.canonical_payload_json["relations"]) == 1
+        assert extraction.canonical_payload_json["relations"][0]["relation_type"] == "increases_spending_on"
         decision = db.query(RoutingDecision).filter_by(raw_message_id=raw.id).one()
         assert decision.triage_action in {"monitor", "update", "promote", "archive"}
         assert isinstance(decision.triage_rules, list)
+        event_link = db.query(EventMessage).filter_by(raw_message_id=raw.id).one()
+        event_relations = db.query(EventRelation).filter_by(event_id=event_link.event_id).all()
+        assert any(rel.relation_type == "increases_spending_on" for rel in event_relations)
+        assert any(rel.relation_source == "inferred" and rel.inference_level == 1 for rel in event_relations)
+        directionality_tags = db.query(EventTag).filter_by(event_id=event_link.event_id, tag_type="directionality").all()
+        assert directionality_tags
+        assert all(tag.tag_source == "inferred" for tag in directionality_tags)
         mentions = db.query(EntityMention).filter(EntityMention.raw_message_id == raw.id).all()
         assert mentions
         assert any(m.entity_type == "country" and m.entity_value == "United States" for m in mentions)

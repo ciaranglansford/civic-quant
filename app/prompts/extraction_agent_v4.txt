@@ -25,7 +25,7 @@ Schema (all keys required, no extra keys):
   "market_stats": [{"label": "string", "value": 0.0, "unit": "string", "context": "string|null"}],
   "tags": [
     {
-      "tag_type": "countries|companies|commodities|sectors|event_mechanisms|policy|conflict|logistics|production|sanctions|spending|weather|strategic|directionality",
+      "tag_type": "countries|organizations|companies|commodities|sectors|event_mechanisms|policy|conflict|logistics|production|sanctions|spending|weather|strategic|directionality",
       "tag_value": "string",
       "tag_source": "observed|inferred",
       "confidence": "number|null"
@@ -33,10 +33,10 @@ Schema (all keys required, no extra keys):
   ],
   "relations": [
     {
-      "subject_type": "country|company|commodity|sector|state|policy|conflict|logistics|production|sanctions|spending|weather",
+      "subject_type": "country|organization|company|commodity|sector|state|policy|conflict|logistics|production|sanctions|spending|weather",
       "subject_value": "string",
       "relation_type": "conflict_with|restricts_export_of|curtails|input_to|increases_spending_on|sanctions|disrupts_logistics_of|expands_production_of|supports|contradicts",
-      "object_type": "country|company|commodity|sector|state|policy|conflict|logistics|production|sanctions|spending|weather",
+      "object_type": "country|organization|company|commodity|sector|state|policy|conflict|logistics|production|sanctions|spending|weather",
       "object_value": "string",
       "relation_source": "observed|inferred",
       "inference_level": "0|1|null",
@@ -65,14 +65,31 @@ Schema (all keys required, no extra keys):
 }
 
 Rules for relations:
+- Relations are first-class output and important; include them when clearly supported by text.
+- Emit 0..3 relations only. Prefer zero relations over weak/speculative relations.
 - Only include observed relations or inferred level-1 relations.
 - Do not include inference depth > 1.
-- Do not include open-ended speculative downstream chains.
+- Do not include open-ended speculative downstream chains or second-order implications.
+- Do not substitute tags or prose mechanism notes for a typed relation.
+- Style examples of acceptable relations:
+  - United States -> conflict_with -> Iran
+  - United States -> increases_spending_on -> conflict
+  - China -> restricts_export_of -> graphite
+  - Producer -> curtails -> ammonia production
+  - critical minerals -> input_to -> manufacturing
 
 Rules for tags:
 - Keep tags compact and machine-friendly.
 - Prefer stable canonical values over prose.
 - Include strategic tags only when clearly justified by the text.
+- Use `organizations` for institutions/agencies/state bodies/multilateral entities.
+- Use `companies` only for firms.
+- For directionality tags, use `tag_source="inferred"` (not observed).
+
+Rules for directionality:
+- Be conservative.
+- Default to `neutral` when evidence is weak or ambiguous.
+- Use `stress` or `easing` only when clearly justified by explicit text.
 
 Raw scoring guidance for impact_score (single numeric output only):
 Evaluate:

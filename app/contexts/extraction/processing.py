@@ -17,6 +17,7 @@ from .canonicalization import (
     compute_claim_hash,
     derive_action_class,
     event_time_bucket,
+    summarize_structured_contract,
 )
 from .extraction_llm_client import OpenAiExtractionClient
 from .extraction_validation import parse_and_validate_extraction
@@ -81,8 +82,14 @@ def materialize_extraction_for_raw_message(
     backend_fingerprint_input = ""
     llm_response = None
     canonicalization_rules: list[str] = []
-    dropped_tag_count = 0
-    dropped_relation_count = 0
+    tags_emitted_count = 0
+    tags_valid_count = 0
+    tags_dropped_count = 0
+    relations_emitted_count = 0
+    relations_valid_count = 0
+    relations_dropped_count = 0
+    dropped_tag_reasons: list[str] = []
+    dropped_relation_reasons: list[str] = []
     canonical_payload_hash: str
     claim_hash: str
     action_class: str
@@ -99,22 +106,50 @@ def materialize_extraction_for_raw_message(
         extraction_model = ExtractionJson.model_validate(extraction.canonical_payload_json)
         calibration = calibration_from_metadata(extraction, extraction_model)
         canonical_payload = extraction_model.model_dump(mode="json")
-        dropped_tag_count = int(
-            (
-                extraction.metadata_json.get("structured_contract", {})
-                if isinstance(extraction.metadata_json, dict)
-                else {}
-            ).get("dropped_tag_count", 0)
-            or 0
+        structured_meta = (
+            extraction.metadata_json.get("structured_contract", {})
+            if isinstance(extraction.metadata_json, dict)
+            else {}
         )
-        dropped_relation_count = int(
-            (
-                extraction.metadata_json.get("structured_contract", {})
-                if isinstance(extraction.metadata_json, dict)
-                else {}
-            ).get("dropped_relation_count", 0)
-            or 0
-        )
+        if isinstance(structured_meta, dict):
+            tags_emitted_count = int(
+                structured_meta.get("tags_emitted_count", structured_meta.get("tag_count", 0))
+                or 0
+            )
+            tags_valid_count = int(
+                structured_meta.get(
+                    "tags_valid_count",
+                    structured_meta.get(
+                        "tag_count",
+                        max(0, tags_emitted_count - int(structured_meta.get("dropped_tag_count", 0) or 0)),
+                    ),
+                )
+                or 0
+            )
+            tags_dropped_count = int(
+                structured_meta.get("tags_dropped_count", structured_meta.get("dropped_tag_count", 0))
+                or 0
+            )
+            relations_emitted_count = int(
+                structured_meta.get("relations_emitted_count", structured_meta.get("relation_count", 0))
+                or 0
+            )
+            relations_valid_count = int(
+                structured_meta.get(
+                    "relations_valid_count",
+                    structured_meta.get(
+                        "relation_count",
+                        max(0, relations_emitted_count - int(structured_meta.get("dropped_relation_count", 0) or 0)),
+                    ),
+                )
+                or 0
+            )
+            relations_dropped_count = int(
+                structured_meta.get("relations_dropped_count", structured_meta.get("dropped_relation_count", 0))
+                or 0
+            )
+            dropped_tag_reasons = list(structured_meta.get("dropped_tag_reasons", []) or [])
+            dropped_relation_reasons = list(structured_meta.get("dropped_relation_reasons", []) or [])
         canonical_payload_hash = extraction.canonical_payload_hash or compute_canonical_payload_hash(
             extraction_model
         )
@@ -173,8 +208,47 @@ def materialize_extraction_for_raw_message(
             backend_fingerprint_input = source_meta.get("backend_event_fingerprint_input", "")
             structured_meta = source_meta.get("structured_contract", {})
             if isinstance(structured_meta, dict):
-                dropped_tag_count = int(structured_meta.get("dropped_tag_count", 0) or 0)
-                dropped_relation_count = int(structured_meta.get("dropped_relation_count", 0) or 0)
+                tags_emitted_count = int(
+                    structured_meta.get("tags_emitted_count", structured_meta.get("tag_count", 0))
+                    or 0
+                )
+                tags_valid_count = int(
+                    structured_meta.get(
+                        "tags_valid_count",
+                        structured_meta.get(
+                            "tag_count",
+                            max(0, tags_emitted_count - int(structured_meta.get("dropped_tag_count", 0) or 0)),
+                        ),
+                    )
+                    or 0
+                )
+                tags_dropped_count = int(
+                    structured_meta.get("tags_dropped_count", structured_meta.get("dropped_tag_count", 0))
+                    or 0
+                )
+                relations_emitted_count = int(
+                    structured_meta.get("relations_emitted_count", structured_meta.get("relation_count", 0))
+                    or 0
+                )
+                relations_valid_count = int(
+                    structured_meta.get(
+                        "relations_valid_count",
+                        structured_meta.get(
+                            "relation_count",
+                            max(
+                                0,
+                                relations_emitted_count - int(structured_meta.get("dropped_relation_count", 0) or 0),
+                            ),
+                        ),
+                    )
+                    or 0
+                )
+                relations_dropped_count = int(
+                    structured_meta.get("relations_dropped_count", structured_meta.get("dropped_relation_count", 0))
+                    or 0
+                )
+                dropped_tag_reasons = list(structured_meta.get("dropped_tag_reasons", []) or [])
+                dropped_relation_reasons = list(structured_meta.get("dropped_relation_reasons", []) or [])
             logger.info(
                 "phase2_content_reuse raw_message_id=%s source_extraction_id=%s normalized_text_hash=%s canonical_payload_hash=%s",
                 raw.id,
@@ -191,10 +265,15 @@ def materialize_extraction_for_raw_message(
 
             raw_payload = parsed
             extraction_model_raw, canonicalization_rules, fingerprint_info = canonicalize_extraction(parsed)
-            raw_tag_count = len(parsed.get("tags", [])) if isinstance(parsed.get("tags"), list) else 0
-            raw_relation_count = len(parsed.get("relations", [])) if isinstance(parsed.get("relations"), list) else 0
-            dropped_tag_count = max(0, raw_tag_count - len(extraction_model_raw.tags))
-            dropped_relation_count = max(0, raw_relation_count - len(extraction_model_raw.relations))
+            diagnostics = summarize_structured_contract(parsed)
+            tags_emitted_count = diagnostics.tags.emitted_count
+            tags_valid_count = diagnostics.tags.valid_count
+            tags_dropped_count = diagnostics.tags.dropped_count
+            relations_emitted_count = diagnostics.relations.emitted_count
+            relations_valid_count = diagnostics.relations.valid_count
+            relations_dropped_count = diagnostics.relations.dropped_count
+            dropped_tag_reasons = diagnostics.tags.dropped_reasons
+            dropped_relation_reasons = diagnostics.relations.dropped_reasons
             calibration = calibrate_impact(extraction_model_raw)
             extraction_model = extraction_model_raw.model_copy(
                 update={"impact_score": calibration.calibrated_score}
@@ -375,8 +454,17 @@ def materialize_extraction_for_raw_message(
             "directionality": extraction_model.directionality,
             "tag_count": len(extraction_model.tags),
             "relation_count": len(extraction_model.relations),
-            "dropped_tag_count": dropped_tag_count,
-            "dropped_relation_count": dropped_relation_count,
+            "tags_emitted_count": tags_emitted_count,
+            "tags_valid_count": tags_valid_count,
+            "tags_dropped_count": tags_dropped_count,
+            "relations_emitted_count": relations_emitted_count,
+            "relations_valid_count": relations_valid_count,
+            "relations_dropped_count": relations_dropped_count,
+            "dropped_tag_reasons": dropped_tag_reasons,
+            "dropped_relation_reasons": dropped_relation_reasons,
+            # Backward-compatible keys retained for existing consumers.
+            "dropped_tag_count": tags_dropped_count,
+            "dropped_relation_count": relations_dropped_count,
         },
     }
     db.flush()
