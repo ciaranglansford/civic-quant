@@ -1,4 +1,56 @@
+# Environment files
 .env
-.venv
+.env.*
+.envrc
+
+# Virtualenv / Python cache
+.venv/
 __pycache__/
 *.py[cod]
+
+# Local session/state and data snapshots
+*.session
+*.session-journal
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.log
+
+# Local tooling / agent state
+.agents/
+.codex/
+
+# Secrets, credentials, and private key material
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+*.secret
+*.secrets
+secrets.*
+credentials.*
+*.token
+
+# Local overrides / temporary files / backups
+*.bak
+*.tmp
+*.swp
+*~
+.local
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Python tooling / build output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
