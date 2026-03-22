@@ -20,8 +20,11 @@ __pycache__/
 *.log
 
 # Local tooling / agent state
-.agents/
-.codex/
+# `.agents/` is intentionally versioned for shared skills.
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/**
 
 # Secrets, credentials, and private key material
 *.pem
