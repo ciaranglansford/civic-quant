@@ -1,0 +1,13 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[agents]
+max_threads = 2
+max_depth = 1
+
+[mcp_servers.civicquant_db]
+command = "python"
+args = ["tools/db_mcp_server.py"]
+cwd = "."
+startup_timeout_sec = 45.0
+tool_timeout_sec = 30.0

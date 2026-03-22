@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+SERVER_NAME = "civicquant-db-mcp"
+SERVER_VERSION = "0.1.0"
+SERVER_PROTOCOL_VERSION = "2025-03-26"
+
+DB_URL_ENV_VAR = "CIVICQUANT_MCP_DATABASE_URL"
+APP_DB_URL_ENV_VAR = "DATABASE_URL"
+DEFAULT_DATABASE_URL = "sqlite+pysqlite:///./civicquant_dev.db"
+
+READONLY_SQL_DEFAULT_MAX_ROWS = 100
+READONLY_SQL_HARD_MAX_ROWS = 500
+LINEAGE_MAX_MESSAGES = 100
+
+
+def _id_schema(field_name: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            field_name: {
+                "type": "integer",
+                "minimum": 1,
+            }
+        },
+        "required": [field_name],
+        "additionalProperties": False,
+    }
+
+
+TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "name": "get_event",
+        "description": "Return one event with linked raw message ids and latest extraction summary fields.",
+        "inputSchema": _id_schema("event_id"),
+    },
+    {
+        "name": "get_raw_message",
+        "description": "Return one raw message with extraction, routing, and event-link context.",
+        "inputSchema": _id_schema("raw_message_id"),
+    },
+    {
+        "name": "get_event_lineage",
+        "description": "Return event lineage across event_messages, raw_messages, extractions, and routing_decisions.",
+        "inputSchema": _id_schema("event_id"),
+    },
+    {
+        "name": "compare_extraction_to_event",
+        "description": "Compare extraction fields for a raw message against its linked event state.",
+        "inputSchema": _id_schema("raw_message_id"),
+    },
+    {
+        "name": "find_duplicate_candidate_events",
+        "description": "Find likely duplicate events near a target event using deterministic similarity signals.",
+        "inputSchema": _id_schema("event_id"),
+    },
+    {
+        "name": "run_readonly_sql",
+        "description": "Run a SELECT-only SQL query with a strict row cap.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "max_rows": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": READONLY_SQL_HARD_MAX_ROWS,
+                    "default": READONLY_SQL_DEFAULT_MAX_ROWS,
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+]
