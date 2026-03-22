@@ -38,7 +38,7 @@ from .types import DigestWindow
 
 
 logger = logging.getLogger("civicquant.digest")
-DIGEST_MIN_IMPACT_EXCLUSIVE = 25.0
+DIGEST_MIN_IMPACT_EXCLUSIVE = 35.0
 
 
 def _freeze_window(now_utc: datetime, window_hours: int) -> DigestWindow:

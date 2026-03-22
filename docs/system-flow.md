@@ -47,7 +47,7 @@
 9. Digest pipeline
 - `app/digest/orchestrator.py` freezes window and fetches events from `app/digest/query.py`:
   - filter by `last_updated_at` window
-  - filter by impact threshold (`> 25.0`)
+  - filter by impact threshold (`> 35.0`)
   - optional destination unpublished filter
 - `app/digest/builder.py` builds source events and deterministic pre-dedupe groups.
 - `app/digest/synthesizer.py` runs LLM synthesis when enabled, else deterministic fallback.

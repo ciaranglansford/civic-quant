@@ -16,7 +16,7 @@ The digest pipeline is intentionally hybrid:
 - `app/digest/query.py:get_events_for_window`
 - deterministic filters:
   - window: `last_updated_at in [start, end)`
-  - impact: `impact_score > 25.0` in orchestrator
+  - impact: `impact_score > 35.0` in orchestrator
   - destination publication-eligibility filter for known destinations
 
 2. Build source digest events
