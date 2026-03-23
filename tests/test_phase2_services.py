@@ -43,5 +43,5 @@ def test_selector_handles_pending_failed_and_expired_in_progress():
 
         eligible = get_eligible_messages_for_extraction(db, batch_size=10)
         ids = [r.telegram_message_id for r in eligible if r.source_channel_id == "b"]
-        assert ids == ["11", "12", "13"]
+        assert ids == ["13", "12", "11"]
 

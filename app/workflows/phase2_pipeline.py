@@ -67,7 +67,7 @@ def get_eligible_messages_for_extraction(db: Session, *, batch_size: int) -> lis
                 & (MessageProcessingState.lease_expires_at <= now),
             )
         )
-        .order_by(RawMessage.message_timestamp_utc.asc(), RawMessage.id.asc())
+        .order_by(RawMessage.message_timestamp_utc.desc(), RawMessage.id.desc())
         .limit(batch_size)
         .all()
     )
