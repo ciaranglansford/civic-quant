@@ -1,86 +1,121 @@
-# Civicquant Intelligence Pipeline
+# Civicquant Telegram Group Intelligence
 
-Civicquant is a modular-monolith intelligence pipeline for wire-style bulletin streams. It captures reported claims, structures them, clusters them into evolving events, and produces scheduled digest and thematic outputs.
+Civicquant is a Telegram-group intelligence system with a narrow product scope:
 
-Truth model:
-- events and digests are reported-claim representations, not confirmed facts
-- attribution and uncertainty language should be preserved
+- `/news <topic> <1h|4h|24h>` returns ranked, deduplicated, evidence-aware updates.
+- `/summary <topic> <1h|4h|24h>` returns a grounded summary of those same updates.
 
-## What This Repository Runs
+It is not a general chatbot or generic adapter platform.  
+Events and summaries represent reported claims, not confirmed facts.
 
-- FastAPI backend (`app/main.py`)
-- Telegram listener (`listener/telegram_listener.py`)
-- Phase2 extraction/orchestration workflow (`app/workflows/phase2_pipeline.py`)
-- Selective deep enrichment workflow (`app/workflows/deep_enrichment_pipeline.py`)
-- Canonical digest workflow (`app/digest/*`)
-- Deterministic theme batch workflow (`app/workflows/theme_batch_pipeline.py`)
-- Opportunity memo workflow (`app/workflows/opportunity_memo_pipeline.py`)
-  - on-demand, single-topic, investable-thesis memo with hard quality + traceability validation
+## Product Boundary
 
-## Quick Start
+Primary user workflow:
+- user asks in a Telegram group: `/news iran 4h` or `/summary iran 4h`
+- bot calls backend query API
+- backend returns structured, traceable output
+- bot formats and posts response in the same group
 
-1. Create and activate a virtual environment.
-2. Install dependencies:
+Only supported windows:
+- `1h`
+- `4h`
+- `24h`
+
+## System Roles
+
+1. Ingestion listener (`listener/telegram_listener.py`)
+- polls a source Telegram channel
+- forwards source messages into backend ingest endpoints
+- does not serve user commands
+
+2. Backend intelligence API (`app/main.py` + query services)
+- stores and processes source messages through extraction/event pipelines
+- serves `/api/query/news` and `/api/query/summary` for bot consumption
+- owns ranking, dedupe, and summarization behavior
+
+3. Telegram command bot (`bot/telegram_bot.py`)
+- runs in Telegram groups
+- parses `/news` and `/summary`
+- validates syntax and window values
+- calls backend with bearer auth
+- formats compact group-readable responses
+
+## API Surface
+
+New query endpoints:
+- `GET /api/query/news?topic=<topic>&window=<1h|4h|24h>`
+- `GET /api/query/summary?topic=<topic>&window=<1h|4h|24h>`
+
+Authentication:
+- backend expects `Authorization: Bearer <BOT_API_TOKEN>` on `/api/query/*`
+- bot sends `BACKEND_BOT_API_TOKEN` as bearer token
+
+## Environment Variables
+
+Backend:
+- `DATABASE_URL`
+- `BOT_API_TOKEN`
+- `OPENAI_API_KEY` (optional; enables LLM summary path)
+- `QUERY_SUMMARY_OPENAI_MODEL` (optional; falls back to `OPENAI_MODEL`)
+
+Ingest listener (unchanged):
+- `TG_API_ID`
+- `TG_API_HASH`
+- `TG_SESSION_NAME`
+- `TG_SOURCE_CHANNEL`
+- `INGEST_API_BASE_URL`
+
+Telegram command bot:
+- `TELEGRAM_BOT_TOKEN`
+- `BACKEND_API_BASE_URL`
+- `BACKEND_BOT_API_TOKEN`
+- `ALLOWED_TELEGRAM_CHAT_IDS` (optional, comma-separated)
+- `REQUEST_TIMEOUT_SECONDS` (optional)
+
+## Local Run
+
+1. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Configure `.env` (minimum for local API + phase2):
-- `DATABASE_URL`
-- `PHASE2_EXTRACTION_ENABLED=true`
-- `OPENAI_API_KEY`
-- optional listener/digest/theme settings
-
-4. Start the API:
+2. Start backend API:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-5. Run core jobs:
-
-```bash
-python -m app.jobs.run_phase2_extraction
-python -m app.jobs.run_deep_enrichment
-python -m app.jobs.run_digest
-python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily
-python -m app.jobs.adopt_opportunity_memo_schema
-python -m app.jobs.run_opportunity_memo --start 2026-03-15T00:00:00Z --end 2026-03-22T00:00:00Z
-python -m app.jobs.run_opportunity_memo --start 2026-03-15T00:00:00Z --end 2026-03-22T00:00:00Z --topic natural_gas
-```
-
-6. Optional listener:
+3. Run ingest listener (source channel -> backend ingest):
 
 ```bash
 python -m listener.telegram_listener
 ```
 
-## Architecture At A Glance
+4. Run Telegram command bot (group commands -> backend query API):
 
-`Ingest -> Normalize -> Extract (LLM + strict validation) -> Canonicalize + score + triage -> Event upsert -> Entity/theme evidence -> Digest/theme batch outputs`
+```bash
+python -m bot.telegram_bot
+```
 
-Key boundaries:
-- `app/contexts/*`: domain logic
-- `app/workflows/*`: cross-context orchestration
-- `app/digest/*`: canonical digest semantics and publishing
-- `app/services/*`: digest compatibility shims only
+5. Run extraction job so ingest data becomes queryable events:
+
+```bash
+python -m app.jobs.run_phase2_extraction
+```
+
+## Example Commands
+
+Telegram group:
+- `/news iran 4h`
+- `/summary iran 4h`
+- `/news oil 24h`
 
 ## Documentation
 
-Start here:
-- `docs/README.md`
-
-Canonical docs:
-- `docs/architecture.md`
-- `docs/system-flow.md`
-- `docs/local-development.md`
-- `docs/configuration.md`
-- `docs/api.md`
-- `docs/data-model.md`
-- `docs/operations.md`
-- `docs/troubleshooting.md`
-- `docs/opportunity_memo.md`
-
-Historical planning/audit artifacts are retained in `docs/05-audit/`, `docs/feed-api/`, `plans/`, and `user-stories/`.
-
+- [Telegram Bot Guide](docs/telegram_bot.md)
+- [API](docs/api.md)
+- [Architecture](docs/architecture.md)
+- [System Flow](docs/system-flow.md)
+- [Configuration](docs/configuration.md)
+- [Local Development](docs/local-development.md)

@@ -8,6 +8,7 @@ from .routers.admin import router as admin_router
 from .routers.admin_theme import router as admin_theme_router
 from .routers.feed import router as feed_router
 from .routers.ingest import router as ingest_router
+from .routers.query import router as query_router
 from .schemas import HealthResponse
 
 
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(admin_theme_router)
     app.include_router(feed_router)
+    app.include_router(query_router)
     return app
 
 

@@ -190,6 +190,47 @@ class FeedEventsResponse(BaseModel):
     next_cursor: str | None
 
 
+QueryWindow = Literal["1h", "4h", "24h"]
+
+
+class QueryNewsResultItem(BaseModel):
+    event_id: int
+    timestamp: str
+    source: str
+    claim: str
+    category: str | None = None
+    importance: Literal["high", "medium", "low"]
+    score: float
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class QueryNewsResponse(BaseModel):
+    topic: str
+    window: QueryWindow
+    generated_at: str
+    count: int
+    results: list[QueryNewsResultItem] = Field(default_factory=list)
+
+
+class QuerySummaryPoint(BaseModel):
+    text: str
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class QuerySummaryPayload(BaseModel):
+    key_developments: list[QuerySummaryPoint] = Field(default_factory=list)
+    uncertainties: list[QuerySummaryPoint] = Field(default_factory=list)
+    why_it_matters: list[QuerySummaryPoint] = Field(default_factory=list)
+
+
+class QuerySummaryResponse(BaseModel):
+    topic: str
+    window: QueryWindow
+    generated_at: str
+    summary: QuerySummaryPayload
+    source_count: int
+
+
 class ThemeRunTriggerRequest(BaseModel):
     theme_key: str
     cadence: Literal["daily", "weekly"] = "daily"

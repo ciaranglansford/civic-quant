@@ -1,121 +1,79 @@
 # API and Interfaces
 
-## HTTP Routes
-
-Opportunity Memo v1 note:
-- no new HTTP route is added for v1
-- primary entrypoint is CLI (`python -m app.jobs.run_opportunity_memo ...`)
-- artifact contract is investable-thesis structured output with mandatory quantified evidence and traceability
+## Core HTTP Routes
 
 ### `GET /health`
-
 - Response: `{"status":"ok"}`
-- Model: `HealthResponse`
 
 ### `POST /ingest/telegram`
-
-- Router: `app/routers/ingest.py`
-- Request model: `TelegramIngestPayload`
-- Response model: `IngestResponse`
-- Behavior:
-  - normalizes `raw_text`
-  - writes `raw_messages` idempotently
-  - creates `message_processing_states` (`pending`) for new rows
-  - returns `status=created` or `status=duplicate`
+- Source listener ingestion endpoint.
+- Writes `raw_messages` idempotently and creates pending processing state.
 
 ### `POST /ingest/source`
+- Generic source-ingest endpoint used by source listener workflows.
 
-- Router: `app/routers/ingest.py`
-- Request model: `SourceIngestPayload`
-- Response model: `IngestResponse`
-- Behavior:
-  - same ingest pipeline as Telegram route
-  - non-Telegram source IDs are namespaced (`<source_type>:<source_stream_id>`) to avoid collisions
+## Query API (Telegram Group Commands)
 
-### `POST /admin/process/phase2-extractions`
+These routes are the backend interface for the Telegram command bot.
 
-- Router: `app/routers/admin.py`
-- Query params:
-  - `force_reprocess` (bool, default `false`)
-- Header required:
-  - `x-admin-token`
-- Auth rule:
-  - must match `PHASE2_ADMIN_TOKEN`
-  - if token is unset, endpoint is effectively disabled and returns `401`
-- Behavior:
-  - runs one phase2 batch (`process_phase2_batch`)
-  - commits batch summary
+Auth for both:
+- `Authorization: Bearer <BOT_API_TOKEN>`
+- Missing/invalid token returns `401`.
 
-### `GET /admin/query/events/by-tag`
+### `GET /api/query/news`
 
-- Router: `app/routers/admin.py`
-- Header required: `x-admin-token` (`PHASE2_ADMIN_TOKEN`)
-- Query params:
-  - `tag_type`, `tag_value`
-  - `start_time`, `end_time`
-  - optional `min_impact`, `directionality`, `limit`
-- Returns serialized event records from `app/contexts/events/structured_query.py`
+Query params:
+- `topic` (required, non-empty)
+- `window` (required, one of `1h|4h|24h`)
 
-### `GET /admin/query/events/by-relation`
+Validation:
+- invalid topic/window returns `400`
 
-- Router: `app/routers/admin.py`
-- Header required: `x-admin-token` (`PHASE2_ADMIN_TOKEN`)
-- Query params:
-  - `relation_type`
-  - `start_time`, `end_time`
-  - optional `subject_type`, `subject_value`, `object_type`, `object_value`
-  - optional `min_impact`, `directionality`, `limit`
+Response shape:
+- `topic`
+- `window`
+- `generated_at`
+- `count`
+- `results[]`:
+  - `event_id`
+  - `timestamp`
+  - `source`
+  - `claim`
+  - `category`
+  - `importance`
+  - `score`
+  - `evidence_refs`
+
+### `GET /api/query/summary`
+
+Query params:
+- `topic` (required, non-empty)
+- `window` (required, one of `1h|4h|24h`)
+
+Validation:
+- invalid topic/window returns `400`
+
+Response shape:
+- `topic`
+- `window`
+- `generated_at`
+- `summary`:
+  - `key_developments[]` (`text`, `evidence_refs`)
+  - `uncertainties[]` (`text`, `evidence_refs`)
+  - `why_it_matters[]` (`text`, `evidence_refs`)
+- `source_count`
+
+## Existing Admin and Feed Routes
 
 ### `GET /api/feed/events`
+- Existing feed endpoint with cursor pagination.
 
-- Router: `app/routers/feed.py`
-- Query params:
-  - `limit` (`1..100`, default `30`)
-  - `cursor` (opaque deterministic cursor)
-  - `topic` (optional typed topic enum)
-- Response model: `FeedEventsResponse`
-- Behavior:
-  - filters to events with non-empty summary and valid topic
-  - orders by `event_time DESC, id DESC`
-  - returns deterministic cursor pagination
-  - invalid cursor returns `400`
+### `POST /admin/process/phase2-extractions`
+- Requires `x-admin-token` matching `PHASE2_ADMIN_TOKEN`.
 
-### Theme Admin Routes (`/admin/*`)
+### `GET /admin/query/events/by-tag`
+### `GET /admin/query/events/by-relation`
+- Require `x-admin-token` matching `PHASE2_ADMIN_TOKEN`.
 
-Router: `app/routers/admin_theme.py`
-
-Endpoints:
-- `POST /admin/theme/run`
-- `GET /admin/themes`
-- `GET /admin/theme-runs`
-- `GET /admin/theme-runs/{run_id}`
-- `GET /admin/theme-runs/{run_id}/assessments`
-- `GET /admin/theme-runs/{run_id}/thesis-cards`
-- `GET /admin/theme-runs/{run_id}/brief`
-
-Current auth status:
-- no auth guard is implemented for these routes in current code
-- treat as internal-only endpoints by deployment convention
-
-## Non-HTTP Operational Interfaces
-
-Primary job entrypoints:
-- `python -m app.jobs.run_phase2_extraction`
-- `python -m app.jobs.run_deep_enrichment`
-- `python -m app.jobs.run_digest`
-- `python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily`
-- `python -m app.jobs.run_opportunity_memo --start <iso> --end <iso> [--topic <topic>]`
-- `python -m app.jobs.adopt_opportunity_memo_schema`
-- `python -m app.jobs.inspect_pipeline --limit 20`
-- `python -m app.jobs.test_openai_extract`
-
-DB MCP read-model tools (Opportunity Memo v1):
-- `rank_topic_opportunities`
-- `build_opportunity_memo_input`
-- `get_topic_timeline`
-- `get_topic_driver_pack`
-
-Listener:
-- `python -m listener.telegram_listener`
-
-See `app/jobs/README.md` for the full job matrix and reset/adoption scripts.
+### Theme admin endpoints (`/admin/theme/*`)
+- Internal admin surface (existing behavior retained).

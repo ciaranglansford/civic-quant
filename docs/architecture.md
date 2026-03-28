@@ -1,69 +1,56 @@
 # Architecture
 
-## System Shape
+## Product-Centric Topology
 
-Civicquant is a modular monolith:
-- one FastAPI app
-- one shared SQL database (SQLite default, PostgreSQL compatible)
-- separate background jobs for extraction, enrichment, digest, and theme batch processing
+This repository is implemented as a narrow Telegram group intelligence system with three distinct roles.
 
-Entry point:
-- `app/main.py` (`create_app`, router wiring, DB init in lifespan)
+1. Ingestion listener
+- code: `listener/telegram_listener.py`
+- responsibility: source channel ingestion into backend `/ingest/*`
+- non-responsibility: no user-command handling
 
-## Runtime Entry Points
+2. Backend intelligence API
+- code: `app/main.py`, `app/routers/query.py`, `app/services/query_service.py`, `app/services/summary_service.py`
+- responsibility: retrieve/rank/dedupe events and produce grounded summaries
+- non-responsibility: no Telegram chat UX formatting
 
-| Component | Code path | Command |
+3. Telegram command bot
+- code: `bot/telegram_bot.py`
+- responsibility: parse `/news` and `/summary`, call backend, format/send group replies
+- non-responsibility: no business logic for ranking/summarization
+
+## Runtime Components
+
+| Component | Path | Command |
 |---|---|---|
 | API | `app/main.py` | `uvicorn app.main:app --reload` |
-| Listener | `listener/telegram_listener.py` | `python -m listener.telegram_listener` |
-| Phase2 extraction | `app/jobs/run_phase2_extraction.py` | `python -m app.jobs.run_phase2_extraction` |
-| Deep enrichment | `app/jobs/run_deep_enrichment.py` | `python -m app.jobs.run_deep_enrichment` |
-| Digest | `app/jobs/run_digest.py` | `python -m app.jobs.run_digest` |
-| Theme batch | `app/jobs/run_theme_batch.py` | `python -m app.jobs.run_theme_batch --theme energy_to_agri_inputs --cadence daily` |
+| Source listener | `listener/telegram_listener.py` | `python -m listener.telegram_listener` |
+| Telegram command bot | `bot/telegram_bot.py` | `python -m bot.telegram_bot` |
+| Phase2 extraction job | `app/jobs/run_phase2_extraction.py` | `python -m app.jobs.run_phase2_extraction` |
 
-## Module Ownership
+## Query Command Boundary
 
-- `app/routers/*`: HTTP adapters only.
-- `app/workflows/phase2_pipeline.py`: phase2 orchestration (selection, lock, state transitions, cross-context sequencing).
-- `app/workflows/deep_enrichment_pipeline.py`: deep enrichment lock + batch orchestration.
-- `app/workflows/theme_batch_pipeline.py`: theme batch orchestration and lifecycle.
-- `app/contexts/ingest/*`: source envelope mapping, normalization, raw persistence.
-- `app/contexts/extraction/*`: prompt rendering, OpenAI extraction client, strict parsing/validation, canonicalization, replay/content reuse.
-- `app/contexts/triage/*`: calibrated impact scoring, deterministic triage/routing decisioning, relatedness helpers.
-- `app/contexts/events/*`: event matching, upsert, review flags, event-tag/relation sync.
-- `app/contexts/entities/*`: entity mention indexing.
-- `app/contexts/enrichment/*`: enrichment candidate selection and deep enrichment materialization.
-- `app/contexts/feed/*`: feed query pagination/filtering.
-- `app/digest/*`: canonical digest query/build/synthesis/render/artifact/publish semantics.
-- `app/contexts/themes/*`: theme definitions, matching, event-theme evidence, evidence bundling.
-- `app/contexts/opportunities/*`: assessment scoring, thesis cards, brief artifacts, enrichment providers for theme batch.
+Supported user commands:
+- `/news <topic> <1h|4h|24h>`
+- `/summary <topic> <1h|4h|24h>`
 
-Compatibility shims:
-- `app/services/digest_builder.py`
-- `app/services/digest_query.py`
-- `app/services/digest_runner.py`
-- `app/services/telegram_publisher.py`
+No other command surfaces are part of this MVP boundary.
 
-These shims delegate to `app/digest/*` and should not contain business logic.
+## Data and Logic Ownership
 
-## Deterministic vs LLM Responsibilities
+- Event extraction/scoring/triage/event upsert remains in backend contexts/workflows.
+- Query matching, ranking, and dedupe are centralized in backend query services.
+- Summary generation is centralized in backend summary service.
+- Telegram message rendering is centralized in bot layer.
 
-Deterministic responsibilities:
-- ingest idempotency and persistence
-- extraction schema validation and canonicalization
-- calibrated impact scoring and triage actioning
-- event identity/upsert and structured facet sync
-- digest event selection, pre-dedupe, synthesis validation, artifact identity, publish state updates
-- theme evidence matching, bundling, scoring, gating, persistence
+## Auth Boundary
 
-LLM responsibilities:
-- phase2 extraction parsing (`OpenAiExtractionClient`)
-- digest synthesis composition (`OpenAiDigestSynthesisClient`) when enabled
+- Backend `/api/query/*` routes require bearer token (`BOT_API_TOKEN`).
+- Telegram bot uses `BACKEND_BOT_API_TOKEN` to call those routes.
+- Shared token model is intentional for MVP simplicity.
 
-The code, not the model, remains authoritative for state transitions, IDs, dedupe, and publication safety.
+## Domain Truth Model
 
-## Domain Semantics
-
-- Raw messages, extractions, events, and digest bullets are representations of reported claims.
-- They are not factual verification outputs.
-- Attribution and uncertainty language are preserved where possible.
+- Events and summaries are representations of reported claims.
+- They are not fact-verification outputs.
+- Attribution and uncertainty language must be preserved.
